@@ -10,7 +10,7 @@ import {
 
 test("admin recovery hashes passwords compatibly with the Worker", () => {
   const salt = Buffer.alloc(16, 9).toString("base64");
-  const expected = pbkdf2Sync("recovery-password", Buffer.from(salt, "base64"), 210000, 32, "sha256")
+  const expected = pbkdf2Sync("recovery-password", Buffer.from(salt, "base64"), 100000, 32, "sha256")
     .toString("base64");
   assert.equal(hashPasswordForStorage("recovery-password", salt), expected);
 });

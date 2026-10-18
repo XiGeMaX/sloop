@@ -89,7 +89,7 @@ function sessionHash(token) {
 }
 
 function passwordHash(password, salt) {
-  return pbkdf2Sync(password, Buffer.from(salt, "base64"), 210000, 32, "sha256").toString(
+  return pbkdf2Sync(password, Buffer.from(salt, "base64"), 100000, 32, "sha256").toString(
     "base64"
   );
 }

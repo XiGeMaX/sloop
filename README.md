@@ -208,7 +208,7 @@ Worker 同时提供 API 和 `public/` 静态资源。`wrangler.jsonc` 中的 Cro
 | 成员 | 保存最多 50 份周期，创建 1 到 24 个月的订阅与合并订阅 |
 | 管理员 | 拥有成员能力，并管理用户、邀请码、密码重置与数据备份 |
 
-- 密码使用随机盐和 PBKDF2-SHA256（210,000 次迭代）存储。
+- 密码使用随机盐和 PBKDF2-SHA256（100,000 次迭代，Cloudflare Workers 上限）存储。
 - 会话 Cookie 带 `HttpOnly` 和 `SameSite=Lax`；HTTPS 下自动添加 `Secure`。
 - 数据库只保存会话令牌的 SHA-256 摘要，不保存原始令牌。
 - 写操作要求同源请求，降低跨站请求伪造风险。
@@ -461,7 +461,7 @@ The Worker serves both the API and the `public/` assets. A daily Cron Trigger in
 | Member | Store up to 50 cycles and create subscriptions or merged subscriptions covering 1 to 24 months |
 | Administrator | Use member features and manage users, invite codes, password resets, and backups |
 
-- Passwords are stored with PBKDF2-SHA256, a random salt, and 210,000 iterations.
+- Passwords are stored with PBKDF2-SHA256, a random salt, and 100,000 iterations (the Cloudflare Workers limit).
 - Session cookies use `HttpOnly` and `SameSite=Lax`; HTTPS deployments also receive `Secure`.
 - Only SHA-256 digests of session tokens are stored in D1.
 - Mutating requests require a same-origin request context.

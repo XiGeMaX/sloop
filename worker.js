@@ -14,7 +14,8 @@ const MAX_CALENDARS_PER_USER = 50;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const BACKUP_FORMAT = "sloop-backup";
 const BACKUP_VERSION = 1;
-const PASSWORD_ITERATIONS = 210000;
+// Workers Web Crypto rejects PBKDF2 iteration counts above 100000.
+const PASSWORD_ITERATIONS = 100000;
 const SESSION_COOKIE = "sloop_session";
 const TONES = {
   sky: "#5f96f4",
