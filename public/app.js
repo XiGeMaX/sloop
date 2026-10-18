@@ -15,9 +15,17 @@ import {
   normalizeTimeZone
 } from "./timezone.js";
 import { minutesRemainingInDay } from "./rest-duration.js";
+import {
+  MAX_END_DAY_OFFSET,
+  inferEndDayOffset,
+  normalizeEndDayOffset,
+  shiftDurationMinutes
+} from "./shift-time.js";
 
 const STORAGE_KEY = "sloop.plan.v2";
 const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
+const GUEST_SHIFT_PRESETS_STORAGE_KEY = SHIFT_PRESETS_STORAGE_KEY;
+const USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX = "sloop.shift-presets.user.";
 const GUEST_EXPORT_MONTHS = 6;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
@@ -25,16 +33,22 @@ const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const TONE_ORDER = [
   "sky",
   "indigo",
-  "sage",
-  "sun",
-  "coral",
-  "rose",
-  "teal",
-  "lime",
+  "violet",
   "plum",
+  "fuchsia",
+  "rose",
+  "berry",
+  "red",
+  "orange",
+  "coral",
   "clay",
-  "slate",
-  "berry"
+  "amber",
+  "sun",
+  "lime",
+  "sage",
+  "emerald",
+  "teal",
+  "slate"
 ];
 await initializeLanguage();
 
@@ -46,6 +60,7 @@ function getDefaultShiftPresets() {
       name: t("preset.day"),
       start: "08:00",
       end: "20:00",
+      endDayOffset: 0,
       tone: "sky"
     },
     {
@@ -54,6 +69,7 @@ function getDefaultShiftPresets() {
       name: t("preset.night"),
       start: "20:00",
       end: "08:00",
+      endDayOffset: 1,
       tone: "indigo"
     },
     {
@@ -62,6 +78,7 @@ function getDefaultShiftPresets() {
       name: t("preset.rest"),
       start: "00:00",
       end: "00:00",
+      endDayOffset: 0,
       tone: "sage"
     }
   ];
@@ -216,15 +233,20 @@ const elements = {
 
 const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-let shiftPresets = loadShiftPresets();
+let activeShiftPresetStorageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY;
+let shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
 let state = createDefaultState();
 let currentUser = null;
+let shiftLibrarySyncTimer = 0;
+let shiftLibraryRevision = 0;
 let currentView = "builder";
 let activeCalendarId = null;
 let currentLinks = null;
 let savedPlanTimer = 0;
 let dragState = null;
 let selectedShiftId = null;
+let pendingTonePaletteScroll = null;
+let pendingTonePaletteScrollAt = 0;
 let calendars = [];
 let mergedSubscription = null;
 let selectedMergedSubscription = null;
@@ -265,45 +287,125 @@ function normalizeShiftPreset(raw, index = 0) {
     (kind === "off" ? t("preset.rest") : t("default.shift", { index: index + 1 }));
   let start = cleanTime(raw.start, kind === "off" ? "00:00" : "09:00");
   let end = cleanTime(raw.end, kind === "off" ? "00:00" : "18:00");
-  if (kind === "work" && start === end) {
-    start = "09:00";
-    end = "18:00";
-  }
   return {
     id,
     kind,
     name,
     start,
     end,
+    endDayOffset: normalizeEndDayOffset(raw.endDayOffset, start, end, kind),
     tone: TONE_ORDER.includes(raw.tone) ? raw.tone : kind === "off" ? "sage" : "sky",
     removable: fixed ? false : Boolean(raw.removable)
   };
 }
 
-function loadShiftPresets() {
+function normalizeShiftPresetList(stored) {
+  if (!Array.isArray(stored)) return null;
+  const seen = new Set();
+  const presets = stored
+    .map((preset, index) => normalizeShiftPreset(preset, index))
+    .filter((preset) => {
+      if (!preset || seen.has(preset.id)) return false;
+      seen.add(preset.id);
+      return true;
+    })
+    .slice(0, 12);
+  return presets.length ? presets : null;
+}
+
+function readStoredShiftPresets(storageKey) {
   try {
-    const stored = JSON.parse(localStorage.getItem(SHIFT_PRESETS_STORAGE_KEY));
-    if (!Array.isArray(stored)) return cloneDefaultPresets();
-    const seen = new Set();
-    const presets = stored
-      .map((preset, index) => normalizeShiftPreset(preset, index))
-      .filter((preset) => {
-        if (!preset || seen.has(preset.id)) return false;
-        seen.add(preset.id);
-        return true;
-      })
-      .slice(0, 12);
-    return presets.length ? presets : cloneDefaultPresets();
+    return normalizeShiftPresetList(JSON.parse(localStorage.getItem(storageKey)));
   } catch {
-    return cloneDefaultPresets();
+    return null;
   }
 }
 
-function saveShiftPresets() {
+function loadShiftPresets(storageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY) {
+  return readStoredShiftPresets(storageKey) ?? cloneDefaultPresets();
+}
+
+function userShiftPresetsStorageKey(user = currentUser) {
+  return user?.id
+    ? `${USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX}${user.id}`
+    : GUEST_SHIFT_PRESETS_STORAGE_KEY;
+}
+
+function saveShiftPresets(options = {}) {
   try {
-    localStorage.setItem(SHIFT_PRESETS_STORAGE_KEY, JSON.stringify(shiftPresets));
+    localStorage.setItem(activeShiftPresetStorageKey, JSON.stringify(shiftPresets));
   } catch {
     // Preset editing remains available when local storage is blocked.
+  }
+  if (options.sync !== false && currentUser) scheduleShiftLibrarySync();
+}
+
+function applyShiftLibrary(rawPresets, user) {
+  const presets = normalizeShiftPresetList(rawPresets);
+  if (!presets) return false;
+  activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
+  shiftPresets = presets;
+  ensureCyclePresetAssignments();
+  saveShiftPresets({ sync: false });
+  renderPresets();
+  renderShiftSettings();
+  renderCycle();
+  updateAllPreview();
+  return true;
+}
+
+function scheduleShiftLibrarySync() {
+  if (!currentUser) return;
+  const user = currentUser;
+  const revision = ++shiftLibraryRevision;
+  window.clearTimeout(shiftLibrarySyncTimer);
+  shiftLibrarySyncTimer = window.setTimeout(async () => {
+    try {
+      await api("/api/shift-library", {
+        method: "PUT",
+        body: JSON.stringify({ presets: shiftPresets })
+      });
+      if (currentUser?.id === user.id && revision === shiftLibraryRevision) {
+        activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
+        saveShiftPresets({ sync: false });
+      }
+    } catch (error) {
+      console.warn("shift_library_sync_failed", error);
+    }
+  }, 450);
+}
+
+async function flushShiftLibrarySync() {
+  window.clearTimeout(shiftLibrarySyncTimer);
+  if (!currentUser) return;
+  await api("/api/shift-library", {
+    method: "PUT",
+    body: JSON.stringify({ presets: shiftPresets })
+  });
+}
+
+async function loadShiftLibraryForUser(user) {
+  const userKey = userShiftPresetsStorageKey(user);
+  try {
+    const data = await api("/api/shift-library");
+    if (data.presets?.length) {
+      applyShiftLibrary(data.presets, user);
+      return;
+    }
+    const saved = await api("/api/shift-library", {
+      method: "PUT",
+      body: JSON.stringify({ presets: shiftPresets })
+    });
+    applyShiftLibrary(saved.presets, user);
+  } catch (error) {
+    console.warn("shift_library_load_failed", error);
+    const cached = readStoredShiftPresets(userKey);
+    activeShiftPresetStorageKey = userKey;
+    if (cached) {
+      applyShiftLibrary(cached, user);
+    } else {
+      saveShiftPresets({ sync: false });
+    }
   }
 }
 
@@ -359,6 +461,7 @@ function makeShift(preset = shiftPresets[0] ?? getDefaultShiftPresets()[0]) {
     name: preset.name,
     start: preset.start,
     end: preset.end,
+    endDayOffset: preset.endDayOffset,
     tone: preset.tone
   };
 }
@@ -423,7 +526,8 @@ function normalizeClientPlan(raw) {
           start: source[2],
           end: source[3],
           tone: source[4],
-          presetId: source[5]
+          presetId: source[5],
+          endDayOffset: source[6]
         }
       : source;
     const hasPresetId = isCompact
@@ -432,14 +536,22 @@ function normalizeClientPlan(raw) {
     const kindValue = String(item?.k ?? item?.kind ?? "w");
     const kind = kindValue === "off" || kindValue === "o" ? "off" : "work";
     const toneValue = String(item?.o ?? item?.tone ?? (kind === "off" ? "sage" : "sky"));
+    const start = cleanTime(item?.a ?? item?.start, kind === "off" ? "00:00" : "09:00");
+    const end = cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00");
     return {
       id: makeId(),
       kind,
       name:
         cleanText(item?.n ?? item?.name, 28) ||
         (kind === "off" ? t("preset.rest") : t("default.shift", { index: index + 1 })),
-      start: cleanTime(item?.a ?? item?.start, kind === "off" ? "00:00" : "09:00"),
-      end: cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00"),
+      start,
+      end,
+      endDayOffset: normalizeEndDayOffset(
+        item?.e ?? item?.endDayOffset,
+        start,
+        end,
+        kind
+      ),
       tone: TONE_ORDER.includes(toneValue) ? toneValue : "sky",
       presetId: hasPresetId ? cleanText(item?.p ?? item?.presetId, 80) || null : undefined
     };
@@ -476,7 +588,8 @@ function compactPlan() {
       item.start,
       item.end,
       item.tone,
-      item.presetId || ""
+      item.presetId || "",
+      item.endDayOffset
     ])
   };
 }
@@ -487,6 +600,7 @@ function presetSignature(preset) {
     preset.name,
     preset.start,
     preset.end,
+    preset.endDayOffset,
     preset.tone
   ].join("\u0000");
 }
@@ -509,6 +623,7 @@ function ensureCyclePresetAssignments() {
         name: shift.name,
         start: shift.start,
         end: shift.end,
+        endDayOffset: shift.endDayOffset,
         tone: shift.tone,
         removable: true
       };
@@ -529,6 +644,7 @@ function syncCycleShiftsToPreset(preset) {
     shift.name = preset.name;
     shift.start = preset.start;
     shift.end = preset.end;
+    shift.endDayOffset = preset.endDayOffset;
     shift.tone = preset.tone;
   }
 }
@@ -637,17 +753,24 @@ function formatRange() {
 }
 
 function isOvernightShift(shift) {
-  return (
-    shift?.kind === "work" &&
-    toMinutes(shift.end) <= toMinutes(shift.start)
-  );
+  return shift?.kind === "work" && Number(shift.endDayOffset) > 0;
 }
 
 function restStartForIndex(index) {
   const shift = state.cycle[index];
   if (shift?.kind !== "off" || state.cycle.length === 0) return null;
   const previous = state.cycle[(index - 1 + state.cycle.length) % state.cycle.length];
-  return isOvernightShift(previous) ? previous.end : null;
+  return isOvernightShift(previous) && previous.endDayOffset === 1 ? previous.end : null;
+}
+
+function dayOffsetLabel(offset) {
+  return offset > 0 ? `+${plural("units.days", offset)}` : t("time.sameDay");
+}
+
+function endDayOptions(selectedOffset) {
+  return Array.from({ length: MAX_END_DAY_OFFSET + 1 }, (_, offset) => `
+    <option value="${offset}"${offset === selectedOffset ? " selected" : ""}>${dayOffsetLabel(offset)}</option>
+  `).join("");
 }
 
 function restRemainingLabel(time) {
@@ -664,8 +787,8 @@ function shiftTimeLabel(shift, restStart = null) {
   if (shift.kind === "off") {
     return restStart ? t("time.restStart", { time: restStart }) : t("time.allDay");
   }
-  const overnight = toMinutes(shift.end) <= toMinutes(shift.start);
-  return `${shift.start}–${overnight ? t("time.nextDay") : ""}${shift.end}`;
+  const dayOffset = shift.endDayOffset > 0 ? `${dayOffsetLabel(shift.endDayOffset)} ` : "";
+  return `${shift.start}–${dayOffset}${shift.end}`;
 }
 
 function toMinutes(value) {
@@ -675,7 +798,7 @@ function toMinutes(value) {
 
 function shiftIcon(shift) {
   if (shift.kind === "off") return "coffee";
-  if (toMinutes(shift.end) <= toMinutes(shift.start) || toMinutes(shift.start) >= 17 * 60) {
+  if (shift.endDayOffset > 0 || toMinutes(shift.start) >= 17 * 60) {
     return "moon";
   }
   return "sun";
@@ -690,7 +813,7 @@ function renderPresets() {
           <span class="preset-copy">
             <strong>${escapeHTML(displayPresetName(preset))}</strong>
             <small>${
-              preset.kind === "off" ? t("common.allDay") : `${preset.start}–${preset.end}`
+              preset.kind === "off" ? t("common.allDay") : shiftTimeLabel(preset)
             }</small>
           </span>
         </button>
@@ -747,9 +870,15 @@ function renderShiftSettings() {
                     <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.startAria", { name: displayPresetName(preset) }))}" />
                   </label>
                   <span aria-hidden="true">→</span>
-                  <label>
+                  <label class="shift-preset-time-end">
                     <span>${t("common.end")}</span>
                     <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.endAria", { name: displayPresetName(preset) }))}" />
+                    <select
+                      class="end-day-select"
+                      data-preset-field="endDayOffset"
+                      data-id="${preset.id}"
+                      aria-label="${escapeHTML(t("shiftSettings.endDayAria", { name: displayPresetName(preset) }))}"
+                    >${endDayOptions(preset.endDayOffset)}</select>
                   </label>
                 `
             }
@@ -809,6 +938,7 @@ function addCustomShiftPreset() {
     name: t("default.customShift"),
     start: "09:00",
     end: "18:00",
+    endDayOffset: 0,
     tone: "coral",
     removable: true
   };
@@ -845,7 +975,7 @@ function renderCycle(options = {}) {
     .map((shift, index) => {
       const hasError =
         shift.kind === "work" &&
-        (shift.start === shift.end || !shift.name.trim());
+        (shiftDurationMinutes(shift) <= 0 || !shift.name.trim());
       const isToday = shift.id === state.todayId;
       return `
         <article
@@ -914,7 +1044,7 @@ function renderCycle(options = {}) {
               />
             </label>
             <span class="time-arrow" aria-hidden="true">→</span>
-            <label class="time-input">
+            <label class="time-input time-input-end">
               <span>${t("common.end")}</span>
               <input
                 type="time"
@@ -922,6 +1052,11 @@ function renderCycle(options = {}) {
                 data-field="end"
                 aria-label="${escapeHTML(t("cycle.endAria", { index: index + 1 }))}"
               />
+              <select
+                class="end-day-select"
+                data-field="endDayOffset"
+                aria-label="${escapeHTML(t("cycle.endDayAria", { index: index + 1 }))}"
+              >${endDayOptions(shift.endDayOffset)}</select>
             </label>
           </div>
             <span class="off-label">${
@@ -1204,7 +1339,7 @@ function getValidationErrors() {
   if (!state.cycle.length) errors.push(t("validation.cycle"));
   for (const [index, shift] of state.cycle.entries()) {
     if (!shift.name.trim()) errors.push(t("validation.shiftName", { index: index + 1 }));
-    if (shift.kind === "work" && shift.start === shift.end) {
+    if (shift.kind === "work" && shiftDurationMinutes(shift) <= 0) {
       errors.push(t("validation.shiftTimes", { index: index + 1 }));
     }
   }
@@ -1263,7 +1398,7 @@ function updateRowErrors() {
     const hasError =
       shift &&
       shift.kind === "work" &&
-      (shift.start === shift.end || !shift.name.trim());
+      (shiftDurationMinutes(shift) <= 0 || !shift.name.trim());
     row.classList.toggle("has-error", Boolean(hasError));
   }
 }
@@ -1368,12 +1503,14 @@ function changeKind(row, id, kind) {
     shift.name = t("preset.rest");
     shift.start = "00:00";
     shift.end = "00:00";
+    shift.endDayOffset = 0;
     shift.tone = "sage";
   } else {
     shift.kind = "work";
     shift.name = t("preset.day");
     shift.start = "08:00";
     shift.end = "20:00";
+    shift.endDayOffset = 0;
     shift.tone = "sky";
   }
 
@@ -1729,6 +1866,7 @@ async function refreshSession() {
   try {
     const data = await api("/api/auth/me");
     currentUser = data.user;
+    if (currentUser) await loadShiftLibraryForUser(currentUser);
   } catch {
     currentUser = null;
   }
@@ -1811,6 +1949,7 @@ async function handleLogin(event) {
       })
     });
     currentUser = data.user;
+    await loadShiftLibraryForUser(currentUser);
     currentLinks = null;
     applyUserUI();
     invalidateLinks();
@@ -1843,6 +1982,7 @@ async function handleRegister(event) {
 
     if (data.user?.status === "approved") {
       currentUser = data.user;
+      await loadShiftLibraryForUser(currentUser);
       currentLinks = null;
       applyUserUI();
       invalidateLinks();
@@ -1921,6 +2061,8 @@ async function handlePasswordChange(event) {
 }
 
 function clearAuthenticatedState() {
+  shiftLibraryRevision += 1;
+  window.clearTimeout(shiftLibrarySyncTimer);
   currentUser = null;
   calendars = [];
   adminUsers = [];
@@ -1931,10 +2073,21 @@ function clearAuthenticatedState() {
   selectedMergedRequestId += 1;
   activeCalendarId = null;
   currentLinks = null;
+  activeShiftPresetStorageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY;
+  shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
+  ensureCyclePresetAssignments();
+  renderPresets();
+  renderShiftSettings();
+  renderCycle();
   applyUserUI();
 }
 
 async function logout() {
+  try {
+    await flushShiftLibrarySync();
+  } catch {
+    // The user cache is retained when the final remote sync fails.
+  }
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {
@@ -2745,7 +2898,27 @@ function bindEvents() {
     const shift = state.cycle.find((item) => item.id === row.dataset.id);
     if (!shift) return;
     detachShiftFromPreset(shift);
+    if (input.dataset.field === "endDayOffset") {
+      shift.endDayOffset = normalizeEndDayOffset(
+        input.value,
+        shift.start,
+        shift.end,
+        shift.kind
+      );
+      input.value = String(shift.endDayOffset);
+      updateAllPreview();
+      return;
+    }
     shift[input.dataset.field] = input.value;
+    if (
+      ["start", "end"].includes(input.dataset.field) &&
+      shift.endDayOffset === 0 &&
+      inferEndDayOffset(shift.start, shift.end) === 1
+    ) {
+      shift.endDayOffset = 1;
+      const offsetSelect = row.querySelector('[data-field="endDayOffset"]');
+      if (offsetSelect) offsetSelect.value = "1";
+    }
     updateAllPreview();
   });
 
@@ -2848,6 +3021,17 @@ function bindEvents() {
       updateShiftPreset(preset.id, { name });
       return;
     }
+    if (input.dataset.presetField === "endDayOffset") {
+      const endDayOffset = normalizeEndDayOffset(
+        input.value,
+        preset.start,
+        preset.end,
+        preset.kind
+      );
+      input.value = String(endDayOffset);
+      updateShiftPreset(preset.id, { endDayOffset });
+      return;
+    }
     const fallback =
       input.dataset.presetField === "start"
         ? preset.kind === "off"
@@ -2858,14 +3042,62 @@ function bindEvents() {
           : "18:00";
     const value = cleanTime(input.value, fallback);
     input.value = value;
-    updateShiftPreset(preset.id, { [input.dataset.presetField]: value });
+    const next = {
+      ...preset,
+      [input.dataset.presetField]: value
+    };
+    const previousOffset = preset.endDayOffset;
+    const endDayOffset =
+      preset.endDayOffset === 0 && inferEndDayOffset(next.start, next.end) === 1
+        ? 1
+        : preset.endDayOffset;
+    updateShiftPreset(preset.id, {
+      [input.dataset.presetField]: value,
+      endDayOffset
+    });
+    if (endDayOffset !== previousOffset) renderShiftSettings();
+  });
+  elements.shiftPresetList.addEventListener("pointerdown", (event) => {
+    const action = event.target.closest('[data-preset-action="tone"]');
+    pendingTonePaletteScroll = action
+      ? action.closest(".shift-preset-tones")?.scrollLeft ?? 0
+      : null;
+    pendingTonePaletteScrollAt = action ? performance.now() : 0;
+  });
+  elements.shiftPresetList.addEventListener("pointercancel", () => {
+    pendingTonePaletteScroll = null;
+    pendingTonePaletteScrollAt = 0;
   });
   elements.shiftPresetList.addEventListener("click", (event) => {
     const action = event.target.closest("[data-preset-action]");
     if (!action) return;
     if (action.dataset.presetAction === "tone") {
+      const paletteScrollLeft =
+        Number.isFinite(pendingTonePaletteScroll) &&
+        performance.now() - pendingTonePaletteScrollAt < 1000
+          ? pendingTonePaletteScroll
+          : action.closest(".shift-preset-tones")?.scrollLeft ?? 0;
+      pendingTonePaletteScroll = null;
+      pendingTonePaletteScrollAt = 0;
       updateShiftPreset(action.dataset.id, { tone: action.dataset.tone });
-      renderShiftSettings();
+      const card = action.closest(".shift-preset-card");
+      if (card) updateTone(card, action.dataset.tone);
+      for (const toneButton of card?.querySelectorAll(".preset-tone") ?? []) {
+        toneButton.setAttribute(
+          "aria-pressed",
+          String(toneButton.dataset.tone === action.dataset.tone)
+        );
+      }
+      const currentPalette = elements.shiftPresetList.querySelector(
+        `.shift-preset-card[data-id="${action.dataset.id}"] .shift-preset-tones`
+      );
+      if (currentPalette) currentPalette.scrollLeft = paletteScrollLeft;
+      window.setTimeout(() => {
+        const activePalette = elements.shiftPresetList.querySelector(
+          `.shift-preset-card[data-id="${action.dataset.id}"] .shift-preset-tones`
+        );
+        if (activePalette) activePalette.scrollLeft = paletteScrollLeft;
+      }, 0);
     }
     if (action.dataset.presetAction === "remove") removeShiftPreset(action.dataset.id);
   });

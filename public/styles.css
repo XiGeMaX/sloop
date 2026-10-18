@@ -15,18 +15,24 @@
   --dark-line: rgba(255, 255, 255, 0.11);
   --accent: #c8f169;
   --accent-ink: #171b12;
-  --sky: #5f96f4;
-  --indigo: #8b8ff6;
-  --sage: #86b89a;
-  --sun: #e7b85e;
-  --coral: #e98e7d;
-  --rose: #dc89ad;
-  --teal: #58a99f;
-  --lime: #9ab95f;
-  --plum: #a58bc9;
-  --clay: #c9785f;
-  --slate: #7189a4;
-  --berry: #bb7bb0;
+  --sky: #2f7fda;
+  --indigo: #5665df;
+  --violet: #7654d6;
+  --plum: #8e5bc0;
+  --fuchsia: #bc3fa4;
+  --rose: #d74481;
+  --berry: #a94774;
+  --red: #ca3d4c;
+  --orange: #dd5f26;
+  --coral: #df7059;
+  --clay: #ad6044;
+  --amber: #bd8212;
+  --sun: #cfa11d;
+  --lime: #789e24;
+  --sage: #3d8c63;
+  --emerald: #178b65;
+  --teal: #148680;
+  --slate: #536b87;
   --danger: #c95f52;
   --shadow:
     0 1px 1px rgba(23, 27, 21, 0.04),
@@ -702,44 +708,68 @@ h2 {
   --tone: var(--indigo);
 }
 
-.tone-sage {
-  --tone: var(--sage);
-}
-
-.tone-sun {
-  --tone: var(--sun);
-}
-
-.tone-coral {
-  --tone: var(--coral);
-}
-
-.tone-rose {
-  --tone: var(--rose);
-}
-
-.tone-teal {
-  --tone: var(--teal);
-}
-
-.tone-lime {
-  --tone: var(--lime);
+.tone-violet {
+  --tone: var(--violet);
 }
 
 .tone-plum {
   --tone: var(--plum);
 }
 
-.tone-clay {
-  --tone: var(--clay);
+.tone-fuchsia {
+  --tone: var(--fuchsia);
 }
 
-.tone-slate {
-  --tone: var(--slate);
+.tone-rose {
+  --tone: var(--rose);
 }
 
 .tone-berry {
   --tone: var(--berry);
+}
+
+.tone-red {
+  --tone: var(--red);
+}
+
+.tone-orange {
+  --tone: var(--orange);
+}
+
+.tone-coral {
+  --tone: var(--coral);
+}
+
+.tone-clay {
+  --tone: var(--clay);
+}
+
+.tone-amber {
+  --tone: var(--amber);
+}
+
+.tone-sun {
+  --tone: var(--sun);
+}
+
+.tone-lime {
+  --tone: var(--lime);
+}
+
+.tone-sage {
+  --tone: var(--sage);
+}
+
+.tone-emerald {
+  --tone: var(--emerald);
+}
+
+.tone-teal {
+  --tone: var(--teal);
+}
+
+.tone-slate {
+  --tone: var(--slate);
 }
 
 .cycle-list {
@@ -953,6 +983,11 @@ h2 {
   background: var(--surface-quiet);
 }
 
+.time-input-end,
+.shift-preset-time-end {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .time-input span {
   color: var(--muted);
   font-size: 0.6rem;
@@ -970,6 +1005,19 @@ h2 {
   font-size: 0.76rem;
   font-weight: 610;
   font-variant-numeric: tabular-nums;
+}
+
+.end-day-select {
+  min-width: 46px;
+  max-width: 58px;
+  padding: 0 1px;
+  border: 0;
+  outline: 0;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 0.64rem;
+  font-weight: 650;
+  cursor: pointer;
 }
 
 .time-arrow {
@@ -2216,13 +2264,15 @@ h2 {
 }
 
 .shift-preset-card-heading {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 30px;
-  align-items: center;
-  gap: 8px;
+  position: relative;
+  min-height: 36px;
 }
 
 .shift-preset-index {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  left: 5px;
   display: grid;
   width: 28px;
   height: 28px;
@@ -2232,14 +2282,16 @@ h2 {
   font-size: 0.62rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
   place-items: center;
 }
 
 .shift-preset-name {
+  display: block;
   width: 100%;
   min-width: 0;
   height: 36px;
-  padding: 0 9px;
+  padding: 0 9px 0 42px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
   outline: 0;
@@ -2249,11 +2301,19 @@ h2 {
   font-weight: 650;
 }
 
+.shift-preset-card-heading:has(.shift-preset-remove) .shift-preset-name {
+  padding-right: 42px;
+}
+
 .shift-preset-name:focus {
   border-color: var(--hairline-strong);
 }
 
 .shift-preset-remove {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 2px;
   display: grid;
   width: 30px;
   height: 30px;
@@ -2296,6 +2356,10 @@ h2 {
   background: var(--surface-solid);
 }
 
+.shift-preset-time label.shift-preset-time-end {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 .shift-preset-time label span {
   color: var(--muted);
   font-size: 0.58rem;
@@ -2325,25 +2389,69 @@ h2 {
 
 .shift-preset-tones {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 9px;
+  align-items: center;
+  margin: -5px;
+  padding: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 5px;
+  scrollbar-width: none;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.shift-preset-tones::-webkit-scrollbar {
+  display: none;
 }
 
 .preset-tone {
-  width: 20px;
-  height: 20px;
+  position: relative;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: 2px solid var(--surface-quiet);
+  border: 2px solid var(--surface-solid);
   border-radius: 50%;
   background: var(--tone);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tone) 64%, var(--hairline));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tone) 72%, var(--ink)),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
   cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.preset-tone::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: "";
+  filter: drop-shadow(0 1px 1px rgba(15, 18, 14, 0.55));
+  opacity: 0;
+  transform: translate(-50%, -60%) rotate(45deg) scale(0.55);
+  transition:
+    opacity 100ms ease,
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .preset-tone[aria-pressed="true"] {
   box-shadow:
-    0 0 0 2px var(--surface-quiet),
-    0 0 0 4px var(--ink);
+    0 0 0 2px var(--surface-solid),
+    0 0 0 4px var(--ink),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+.preset-tone[aria-pressed="true"]::after {
+  opacity: 1;
+  transform: translate(-50%, -60%) rotate(45deg) scale(1);
 }
 
 .shift-preset-add {
@@ -3230,7 +3338,9 @@ h2 {
   .secondary-actions button,
   .stepper-button,
   .remove-button,
-  .color-dot {
+  .color-dot,
+  .preset-tone,
+  .preset-tone::after {
     transform: none !important;
   }
 }
@@ -3417,7 +3527,8 @@ h2 {
   .invite-form input,
   .account-form input,
   .shift-preset-name,
-  .shift-preset-time input {
+  .shift-preset-time input,
+  .end-day-select {
     font-size: 16px;
   }
 
@@ -3426,7 +3537,7 @@ h2 {
   }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 480px) {
   .shift-timezone-button {
     max-width: 118px;
   }
@@ -3437,7 +3548,7 @@ h2 {
 
   .shift-preset-time {
     grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
+    gap: 7px;
   }
 
   .shift-preset-time > span {
@@ -3450,6 +3561,10 @@ h2 {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .preset-tone:hover {
+    transform: scale(1.1);
+  }
+
   .shift-timezone-button:hover {
     border-color: var(--hairline-strong);
     background: var(--surface-solid);

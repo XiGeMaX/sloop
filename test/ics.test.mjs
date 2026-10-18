@@ -149,6 +149,7 @@ function createAuthFixture() {
     [sessionHash("member-token"), { user_id: "member-1", expires_at: 9999999999 }],
     [sessionHash("member-other-token"), { user_id: "member-1", expires_at: 9999999999 }]
   ]);
+  const shiftLibraries = new Map();
   const db = {
     users,
     sessions,
@@ -194,6 +195,13 @@ function createAuthFixture() {
             }
             return { meta: { changes } };
           }
+          if (/INSERT INTO shift_libraries/i.test(sql)) {
+            shiftLibraries.set(values[0], {
+              presets_json: values[1],
+              updated_at: values[2]
+            });
+            return { meta: { changes: 1 } };
+          }
           return { meta: { changes: 0 } };
         },
         async first() {
@@ -212,13 +220,16 @@ function createAuthFixture() {
           if (/SELECT .* FROM users WHERE id = \?/i.test(sql)) {
             return users.get(values[0]) || null;
           }
+          if (/FROM shift_libraries WHERE user_id = \?/i.test(sql)) {
+            return shiftLibraries.get(values[0]) || null;
+          }
           return null;
         }
       };
       return statement;
     }
   };
-  return { db, users, sessions, passwordSalt };
+  return { db, users, sessions, shiftLibraries, passwordSalt };
 }
 
 function authRequest(path, token, body = null, method = "PATCH") {
@@ -275,12 +286,34 @@ function createBackupFixture() {
       }
     ]
   ]);
+  const shiftLibraries = new Map([
+    [
+      "member-1",
+      {
+        user_id: "member-1",
+        presets_json: JSON.stringify([
+          {
+            id: "day",
+            kind: "work",
+            name: "白班",
+            start: "08:00",
+            end: "20:00",
+            endDayOffset: 0,
+            tone: "sky",
+            removable: false
+          }
+        ]),
+        updated_at: "2026-01-08T00:00:00.000Z"
+      }
+    ]
+  ]);
   const db = {
     users: auth.users,
     sessions: auth.sessions,
     invites,
     calendars,
     guestSubscriptions,
+    shiftLibraries,
     prepare(sql) {
       let values = [];
       const statement = {
@@ -295,6 +328,8 @@ function createBackupFixture() {
             auth.sessions.clear();
           } else if (/DELETE FROM calendars/i.test(sql)) {
             calendars.clear();
+          } else if (/DELETE FROM shift_libraries/i.test(sql)) {
+            shiftLibraries.clear();
           } else if (/DELETE FROM invites/i.test(sql)) {
             invites.clear();
           } else if (/DELETE FROM users/i.test(sql)) {
@@ -334,6 +369,12 @@ function createBackupFixture() {
               created_at: values[5],
               updated_at: values[6]
             });
+          } else if (/INSERT INTO shift_libraries/i.test(sql)) {
+            shiftLibraries.set(values[0], {
+              user_id: values[0],
+              presets_json: values[1],
+              updated_at: values[2]
+            });
           }
           return { meta: { changes: 1 } };
         },
@@ -350,6 +391,9 @@ function createBackupFixture() {
           if (/FROM calendars/i.test(sql)) {
             return { results: [...calendars.values()] };
           }
+          if (/FROM shift_libraries/i.test(sql)) {
+            return { results: [...shiftLibraries.values()] };
+          }
           return { results: [] };
         }
       };
@@ -360,7 +404,7 @@ function createBackupFixture() {
       return [];
     }
   };
-  return { ...auth, db, invites, calendars, guestSubscriptions };
+  return { ...auth, db, invites, calendars, guestSubscriptions, shiftLibraries };
 }
 
 async function createTestGuestPath(endpoint = "/api/guest-link") {
@@ -396,13 +440,43 @@ test("preserves shift preset references when normalizing plans", () => {
   assert.equal(plan.cycle[0].presetId, "day");
 });
 
+test("supports 24-hour and multi-day shifts with end day offsets", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    i: 0,
+    c: [
+      ["w", "24 小时", "09:00", "09:00", "coral", "", 1],
+      ["w", "48 小时", "09:00", "09:00", "rose", "", 2]
+    ]
+  });
+  assert.equal(plan.cycle[0].endDayOffset, 1);
+  assert.equal(plan.cycle[1].endDayOffset, 2);
+
+  const calendar = buildCalendar(plan, {
+    startDate: "2026-10-18",
+    months: 1,
+    now: testNow
+  });
+  assert.match(calendar, /X-SLOOP-CYCLE-DAY:1\r\nX-SLOOP-END-DAY-OFFSET:1/);
+  assert.match(calendar, /DTSTART:20261018T010000Z\r\nDTEND:20261019T010000Z/);
+  assert.match(calendar, /DTSTART:20261019T010000Z\r\nDTEND:20261021T010000Z/);
+});
+
+test("infers a one-day offset for legacy overnight shifts", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    c: [["w", "夜班", "20:00", "08:00", "indigo"]]
+  });
+  assert.equal(plan.cycle[0].endDayOffset, 1);
+});
+
 test("supports the expanded shift color palette", () => {
   const plan = normalizePlan({
     ...samplePlan,
     i: 0,
     d: 1,
     r: 0,
-    c: [["w", "青碧班", "08:00", "20:00", "teal"]]
+    c: [["w", "翡翠班", "08:00", "20:00", "emerald"]]
   });
   const calendar = buildCalendar(plan, {
     startDate: "2026-10-18",
@@ -410,8 +484,8 @@ test("supports the expanded shift color palette", () => {
     now: testNow
   });
 
-  assert.equal(plan.cycle[0].tone, "teal");
-  assert.match(calendar, /COLOR:#58a99f/);
+  assert.equal(plan.cycle[0].tone, "emerald");
+  assert.match(calendar, /COLOR:#178b65/);
 });
 
 test("allows member subscription durations up to 24 months", () => {
@@ -480,6 +554,46 @@ test("changes the current password and revokes only the user's other sessions", 
   );
 });
 
+test("stores each user's shift library and restores it on the next request", async () => {
+  const { db, shiftLibraries } = createAuthFixture();
+  const presets = [
+    {
+      id: "day",
+      kind: "work",
+      name: "白班",
+      start: "08:00",
+      end: "20:00",
+      endDayOffset: 0,
+      tone: "sky"
+    },
+    {
+      id: "custom-24",
+      kind: "work",
+      name: "24 小时",
+      start: "09:00",
+      end: "09:00",
+      endDayOffset: 1,
+      tone: "coral"
+    }
+  ];
+  const saved = await worker.fetch(
+    authRequest("/api/shift-library", "member-token", { presets }, "PUT"),
+    { DB: db }
+  );
+  assert.equal(saved.status, 200);
+  assert.equal((await saved.json()).presets[1].endDayOffset, 1);
+  assert.equal(shiftLibraries.has("member-1"), true);
+
+  const restored = await worker.fetch(
+    authRequest("/api/shift-library", "member-token", null, "GET"),
+    { DB: db }
+  );
+  assert.equal(restored.status, 200);
+  const data = await restored.json();
+  assert.equal(data.presets[0].id, "day");
+  assert.equal(data.presets[1].name, "24 小时");
+});
+
 test("rejects a password change when the current password is wrong", async () => {
   const { db, users, sessions } = createAuthFixture();
   const originalHash = users.get("member-1").password_hash;
@@ -544,15 +658,29 @@ test("exports a complete admin backup without sessions or guest subscriptions", 
   const snapshot = await response.json();
   assert.equal(snapshot.format, "sloop-backup");
   assert.equal(snapshot.version, 1);
-  assert.deepEqual(snapshot.counts, { users: 3, invites: 1, calendars: 1 });
+  assert.deepEqual(snapshot.counts, {
+    users: 3,
+    invites: 1,
+    calendars: 1,
+    shiftLibraries: 1
+  });
   assert.equal(snapshot.data.users[0].passwordHash, users.get("admin-1").password_hash);
   assert.equal(snapshot.data.calendars[0].plan.cycle.length, 3);
+  assert.equal(snapshot.data.shiftLibraries[0].presets[0].id, "day");
   assert.equal("sessions" in snapshot.data, false);
   assert.equal("guestSubscriptions" in snapshot.data, false);
 });
 
 test("replaces all data from an admin backup and revokes every session", async () => {
-  const { db, users, sessions, invites, calendars, guestSubscriptions } = createBackupFixture();
+  const {
+    db,
+    users,
+    sessions,
+    invites,
+    calendars,
+    guestSubscriptions,
+    shiftLibraries
+  } = createBackupFixture();
   const exportResponse = await worker.fetch(
     authRequest("/api/admin/backup", "admin-token", null, "GET"),
     { DB: db }
@@ -567,7 +695,7 @@ test("replaces all data from an admin backup and revokes every session", async (
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     ok: true,
-    imported: { users: 3, invites: 1, calendars: 1 },
+    imported: { users: 3, invites: 1, calendars: 1, shiftLibraries: 1 },
     sessionsRevoked: true
   });
   assert.equal(users.get("member-1").nickname, "导入成员");
@@ -575,6 +703,7 @@ test("replaces all data from an admin backup and revokes every session", async (
   assert.equal(guestSubscriptions.size, 0);
   assert.equal(invites.size, 1);
   assert.equal(calendars.size, 1);
+  assert.equal(shiftLibraries.size, 1);
 });
 
 test("rejects an incomplete backup without modifying existing data", async () => {
@@ -833,7 +962,7 @@ test("allows guest ICS exports to cover six months", async () => {
 test("rejects equal start and end times", async () => {
   const invalid = {
     ...samplePlan,
-    c: [["w", "错误班次", "09:00", "09:00", "sky"]]
+    c: [["w", "错误班次", "09:00", "09:00", "sky", "", 0]]
   };
   const response = await worker.fetch(
     new Request("https://example.com/api/guest-link", {

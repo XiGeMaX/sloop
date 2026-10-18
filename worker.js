@@ -1,4 +1,8 @@
 import { DEFAULT_TIMEZONE, normalizeTimeZone } from "./public/timezone.js";
+import {
+  normalizeEndDayOffset,
+  shiftDurationMinutes
+} from "./public/shift-time.js";
 
 const MAX_CYCLE_DAYS = 35;
 const MAX_GUEST_MONTHS = 3;
@@ -11,6 +15,7 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 const GUEST_LINK_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_ACTIVE_GUEST_SUBSCRIPTIONS = 10000;
 const MAX_CALENDARS_PER_USER = 50;
+const MAX_SHIFT_PRESETS = 12;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const BACKUP_FORMAT = "sloop-backup";
 const BACKUP_VERSION = 1;
@@ -18,18 +23,24 @@ const BACKUP_VERSION = 1;
 const PASSWORD_ITERATIONS = 100000;
 const SESSION_COOKIE = "sloop_session";
 const TONES = {
-  sky: "#5f96f4",
-  indigo: "#8b8ff6",
-  sage: "#86b89a",
-  sun: "#e7b85e",
-  coral: "#e98e7d",
-  rose: "#dc89ad",
-  teal: "#58a99f",
-  lime: "#9ab95f",
-  plum: "#a58bc9",
-  clay: "#c9785f",
-  slate: "#7189a4",
-  berry: "#bb7bb0"
+  sky: "#2f7fda",
+  indigo: "#5665df",
+  violet: "#7654d6",
+  plum: "#8e5bc0",
+  fuchsia: "#bc3fa4",
+  rose: "#d74481",
+  berry: "#a94774",
+  red: "#ca3d4c",
+  orange: "#dd5f26",
+  coral: "#df7059",
+  clay: "#ad6044",
+  amber: "#bd8212",
+  sun: "#cfa11d",
+  lime: "#789e24",
+  sage: "#3d8c63",
+  emerald: "#178b65",
+  teal: "#148680",
+  slate: "#536b87"
 };
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -135,7 +146,8 @@ function normalizePlan(raw) {
           start: source[2],
           end: source[3],
           tone: source[4],
-          presetId: source[5]
+          presetId: source[5],
+          endDayOffset: source[6]
         }
       : source;
     const kindValue = String(item?.k ?? item?.kind ?? "w");
@@ -144,11 +156,20 @@ function normalizePlan(raw) {
     const fallbackName = kind === "off" ? "休息" : `班次 ${index + 1}`;
     const startTime = cleanTime(item?.a ?? item?.start, kind === "off" ? "00:00" : "09:00");
     const endTime = cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00");
+    const endDayOffset = normalizeEndDayOffset(
+      item?.e ?? item?.endDayOffset,
+      startTime,
+      endTime,
+      kind
+    );
     const toneValue = String(item?.o ?? item?.tone ?? (kind === "off" ? "sage" : "sky"));
     const tone = Object.hasOwn(TONES, toneValue) ? toneValue : "sky";
     const presetId = cleanText(item?.p ?? item?.presetId, 80) || null;
 
-    if (kind === "work" && startTime === endTime) {
+    if (
+      kind === "work" &&
+      shiftDurationMinutes({ start: startTime, end: endTime, endDayOffset }) <= 0
+    ) {
       throw new ApiError(400, "shift_times_match");
     }
 
@@ -157,6 +178,7 @@ function normalizePlan(raw) {
       name: name || fallbackName,
       start: startTime,
       end: endTime,
+      endDayOffset,
       tone,
       presetId
     };
@@ -178,6 +200,46 @@ function normalizePlan(raw) {
     includeRest: Boolean(raw.r ?? raw.includeRest),
     cycle
   };
+}
+
+function normalizeShiftLibrary(raw) {
+  const source = Array.isArray(raw) ? raw : raw?.presets;
+  if (!Array.isArray(source) || source.length === 0 || source.length > MAX_SHIFT_PRESETS) {
+    throw new ApiError(400, "invalid_shift_library");
+  }
+
+  const seen = new Set();
+  return source.map((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new ApiError(400, "invalid_shift_library");
+    }
+    const id = cleanText(item.id, 80);
+    if (!/^[a-zA-Z0-9_-]+$/.test(id) || seen.has(id)) {
+      throw new ApiError(400, "invalid_shift_library");
+    }
+    seen.add(id);
+
+    const kind = item.kind === "off" ? "off" : "work";
+    const start = cleanTime(item.start, kind === "off" ? "00:00" : "09:00");
+    const end = cleanTime(item.end, kind === "off" ? "00:00" : "18:00");
+    const endDayOffset = normalizeEndDayOffset(item.endDayOffset, start, end, kind);
+    if (kind === "work" && shiftDurationMinutes({ start, end, endDayOffset }) <= 0) {
+      throw new ApiError(400, "invalid_shift_library");
+    }
+    const toneValue = String(item.tone ?? (kind === "off" ? "sage" : "sky"));
+    return {
+      id,
+      kind,
+      name:
+        cleanText(item.name, 28) ||
+        (kind === "off" ? "休息" : `班次 ${index + 1}`),
+      start,
+      end,
+      endDayOffset,
+      tone: Object.hasOwn(TONES, toneValue) ? toneValue : "sky",
+      removable: !["day", "night", "off"].includes(id)
+    };
+  });
 }
 
 function bytesToBase64(bytes) {
@@ -424,11 +486,6 @@ function stableHash(value) {
   return (hash >>> 0).toString(36);
 }
 
-function timeToMinutes(value) {
-  const [hour, minute] = value.split(":").map(Number);
-  return hour * 60 + minute;
-}
-
 function todayDateParts(now, timezone) {
   const parts = getZonedParts(now.getTime(), timezone);
   return { year: parts.year, month: parts.month, day: parts.day };
@@ -473,7 +530,7 @@ function buildCalendar(planInput, options = {}) {
     const day = date.getUTCDate();
     const month = date.getUTCMonth() + 1;
     const year = date.getUTCFullYear();
-    const uidSeed = `${uidNamespace ? `${uidNamespace}|` : ""}${cycleIndex}|${shift.name}|${shift.start}|${shift.end}|${shift.tone}`;
+    const uidSeed = `${uidNamespace ? `${uidNamespace}|` : ""}${cycleIndex}|${shift.name}|${shift.start}|${shift.end}|${shift.endDayOffset}|${shift.tone}`;
     const uid = `sloop-${formatIcsDate(date)}-${stableHash(uidSeed)}@shift-cycle.ics`;
     const description = `周期第 ${cycleIndex + 1} 天 · ${plan.title}`;
 
@@ -486,11 +543,12 @@ function buildCalendar(planInput, options = {}) {
     lines.push(`DESCRIPTION:${escapeIcsText(description)}`);
     lines.push(`CATEGORIES:${escapeIcsText(plan.title)}`);
     lines.push(`X-SLOOP-CYCLE-DAY:${cycleIndex + 1}`);
+    lines.push(`X-SLOOP-END-DAY-OFFSET:${shift.endDayOffset}`);
 
     if (shift.kind === "off") {
       const previousOvernight =
         previousShift.kind === "work" &&
-        timeToMinutes(previousShift.end) <= timeToMinutes(previousShift.start);
+        previousShift.endDayOffset === 1;
 
       if (previousOvernight) {
         const [restHour, restMinute] = previousShift.end.split(":").map(Number);
@@ -522,8 +580,7 @@ function buildCalendar(planInput, options = {}) {
     } else {
       const [startHour, startMinute] = shift.start.split(":").map(Number);
       const [endHour, endMinute] = shift.end.split(":").map(Number);
-      const overnight = timeToMinutes(shift.end) <= timeToMinutes(shift.start);
-      const endDate = overnight ? addUtcDays(date, 1) : date;
+      const endDate = addUtcDays(date, shift.endDayOffset);
       const startUtc = localDateTimeToUtc(year, month, day, startHour, startMinute, plan.timezone);
       const endUtc = localDateTimeToUtc(
         endDate.getUTCFullYear(),
@@ -925,6 +982,40 @@ async function changeOwnPassword(request, env) {
   return emptyResponse();
 }
 
+async function getShiftLibrary(request, env) {
+  const user = await requireUser(request, env);
+  const row = await requireDatabase(env)
+    .prepare("SELECT presets_json, updated_at FROM shift_libraries WHERE user_id = ? LIMIT 1")
+    .bind(user.id)
+    .first();
+  if (!row) return jsonResponse({ presets: null, updatedAt: null });
+
+  let presets;
+  try {
+    presets = normalizeShiftLibrary(JSON.parse(row.presets_json));
+  } catch {
+    throw new ApiError(500, "shift_library_invalid");
+  }
+  return jsonResponse({ presets, updatedAt: row.updated_at });
+}
+
+async function updateShiftLibrary(request, env) {
+  const user = await requireUser(request, env);
+  const presets = normalizeShiftLibrary(await readJson(request, 32000));
+  const now = new Date().toISOString();
+  await requireDatabase(env)
+    .prepare(
+      `INSERT INTO shift_libraries (user_id, presets_json, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         presets_json = excluded.presets_json,
+         updated_at = excluded.updated_at`
+    )
+    .bind(user.id, JSON.stringify(presets), now)
+    .run();
+  return jsonResponse({ presets, updatedAt: now });
+}
+
 async function listUsers(request, env) {
   await requireAdmin(request, env);
   const rows = await requireDatabase(env)
@@ -1140,6 +1231,19 @@ function normalizeBackupCalendar(source) {
   };
 }
 
+function normalizeBackupShiftLibrary(source) {
+  if (!source || typeof source !== "object") throw invalidBackup();
+  try {
+    return {
+      userId: normalizeBackupId(source.userId),
+      presets: normalizeShiftLibrary(source.presets),
+      updatedAt: normalizeBackupTimestamp(source.updatedAt)
+    };
+  } catch {
+    throw invalidBackup();
+  }
+}
+
 function normalizeBackupSnapshot(source) {
   if (
     !source ||
@@ -1151,14 +1255,21 @@ function normalizeBackupSnapshot(source) {
   ) {
     throw invalidBackup();
   }
-  const { users: sourceUsers, invites: sourceInvites, calendars: sourceCalendars } = source.data;
+  const {
+    users: sourceUsers,
+    invites: sourceInvites,
+    calendars: sourceCalendars,
+    shiftLibraries: sourceShiftLibraries = []
+  } = source.data;
   if (
     !Array.isArray(sourceUsers) ||
     !Array.isArray(sourceInvites) ||
     !Array.isArray(sourceCalendars) ||
+    !Array.isArray(sourceShiftLibraries) ||
     sourceUsers.length > 10000 ||
     sourceInvites.length > 10000 ||
-    sourceCalendars.length > 50000
+    sourceCalendars.length > 50000 ||
+    sourceShiftLibraries.length > 10000
   ) {
     throw invalidBackup();
   }
@@ -1166,12 +1277,14 @@ function normalizeBackupSnapshot(source) {
   const users = sourceUsers.map(normalizeBackupUser);
   const invites = sourceInvites.map(normalizeBackupInvite);
   const calendars = sourceCalendars.map(normalizeBackupCalendar);
+  const shiftLibraries = sourceShiftLibraries.map(normalizeBackupShiftLibrary);
   const userIds = new Set(users.map((user) => user.id));
   const usernames = new Set(users.map((user) => user.username));
   const inviteIds = new Set(invites.map((invite) => invite.id));
   const inviteCodes = new Set(invites.map((invite) => invite.code));
   const calendarIds = new Set(calendars.map((calendar) => calendar.id));
   const calendarSlugs = new Set(calendars.map((calendar) => calendar.shareSlug));
+  const shiftLibraryUsers = new Set(shiftLibraries.map((library) => library.userId));
 
   if (
     !users.some((user) => user.role === "admin" && user.status === "approved") ||
@@ -1183,6 +1296,8 @@ function normalizeBackupSnapshot(source) {
     calendarSlugs.size !== calendars.length ||
     invites.some((invite) => !userIds.has(invite.createdBy)) ||
     calendars.some((calendar) => !userIds.has(calendar.userId))
+    || shiftLibraryUsers.size !== shiftLibraries.length
+    || shiftLibraries.some((library) => !userIds.has(library.userId))
   ) {
     throw invalidBackup();
   }
@@ -1191,12 +1306,14 @@ function normalizeBackupSnapshot(source) {
     counts: {
       users: users.length,
       invites: invites.length,
-      calendars: calendars.length
+      calendars: calendars.length,
+      shiftLibraries: shiftLibraries.length
     },
     data: {
       users,
       invites,
-      calendars
+      calendars,
+      shiftLibraries
     }
   };
 }
@@ -1204,10 +1321,11 @@ function normalizeBackupSnapshot(source) {
 async function exportBackup(request, env) {
   await requireAdmin(request, env);
   const db = requireDatabase(env);
-  const [userRows, inviteRows, calendarRows] = await Promise.all([
+  const [userRows, inviteRows, calendarRows, shiftLibraryRows] = await Promise.all([
     db.prepare("SELECT * FROM users ORDER BY created_at, id").all(),
     db.prepare("SELECT * FROM invites ORDER BY created_at, id").all(),
-    db.prepare("SELECT * FROM calendars ORDER BY created_at, id").all()
+    db.prepare("SELECT * FROM calendars ORDER BY created_at, id").all(),
+    db.prepare("SELECT * FROM shift_libraries ORDER BY user_id").all()
   ]);
   const users = (userRows.results || []).map((row) => ({
     id: row.id,
@@ -1249,6 +1367,19 @@ async function exportBackup(request, env) {
       updatedAt: row.updated_at
     };
   });
+  const shiftLibraries = (shiftLibraryRows.results || []).map((row) => {
+    let presets;
+    try {
+      presets = normalizeShiftLibrary(JSON.parse(row.presets_json));
+    } catch {
+      presets = [];
+    }
+    return {
+      userId: row.user_id,
+      presets,
+      updatedAt: row.updated_at
+    };
+  }).filter((library) => library.presets.length > 0);
   const exportedAt = new Date().toISOString();
 
   return jsonResponse(
@@ -1259,12 +1390,14 @@ async function exportBackup(request, env) {
       counts: {
         users: users.length,
         invites: invites.length,
-        calendars: calendars.length
+        calendars: calendars.length,
+        shiftLibraries: shiftLibraries.length
       },
       data: {
         users,
         invites,
-        calendars
+        calendars,
+        shiftLibraries
       }
     },
     200,
@@ -1283,6 +1416,7 @@ async function importBackup(request, env) {
     db.prepare("DELETE FROM guest_subscriptions"),
     db.prepare("DELETE FROM sessions"),
     db.prepare("DELETE FROM calendars"),
+    db.prepare("DELETE FROM shift_libraries"),
     db.prepare("DELETE FROM invites"),
     db.prepare("DELETE FROM users")
   ];
@@ -1309,6 +1443,17 @@ async function importBackup(request, env) {
           user.approvedAt,
           user.approvedBy
         )
+    );
+  }
+
+  for (const library of snapshot.data.shiftLibraries) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO shift_libraries (user_id, presets_json, updated_at)
+           VALUES (?, ?, ?)`
+        )
+        .bind(library.userId, JSON.stringify(library.presets), library.updatedAt)
     );
   }
 
@@ -1863,6 +2008,12 @@ async function handleApiRequest(request, env) {
   if (path === "/api/auth/password" && method === "PATCH") return changeOwnPassword(request, env);
   if (path === "/api/auth/me" && method === "GET") {
     return jsonResponse({ user: await getSessionUser(request, env) });
+  }
+  if (path === "/api/shift-library" && method === "GET") {
+    return getShiftLibrary(request, env);
+  }
+  if (path === "/api/shift-library" && method === "PUT") {
+    return updateShiftLibrary(request, env);
   }
 
   if (path === "/api/guest-link" && method === "POST") return createGuestLink(request, env);
