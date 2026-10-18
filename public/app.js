@@ -29,9 +29,8 @@ import {
   shiftDurationMinutes
 } from "./shift-time.js";
 
-const STORAGE_KEY = "sloop.plan.v2";
-const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
-const DEFAULT_SHIFT_PRESETS_STORAGE_KEY = SHIFT_PRESETS_STORAGE_KEY;
+const LEGACY_STORAGE_KEY = "sloop.plan.v2";
+const USER_PLAN_STORAGE_KEY_PREFIX = "sloop.plan.user.";
 const USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX = "sloop.shift-presets.user.";
 const THEME_STORAGE_KEY = "sloop.theme.v1";
 const PAGE_SCROLL_LOCK_STORAGE_KEY = "sloop.page-scroll-lock.v1";
@@ -296,8 +295,9 @@ const elements = {
 
 const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-let activeShiftPresetStorageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
-let shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
+let activeShiftPresetStorageKey = null;
+let shiftPresets = cloneDefaultPresets();
+let shiftPresetDraft = null;
 let state = createDefaultState();
 let currentUser = null;
 let authGateReady = false;
@@ -307,6 +307,7 @@ let currentView = "builder";
 let activeCalendarId = null;
 let currentLinks = null;
 let savedPlanTimer = 0;
+let workspaceRevision = 0;
 let dragState = null;
 let selectedShiftId = null;
 let pageScrollLocked = loadPageScrollLocked();
@@ -392,37 +393,41 @@ function readStoredShiftPresets(storageKey) {
   }
 }
 
-function loadShiftPresets(storageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY) {
-  return readStoredShiftPresets(storageKey) ?? cloneDefaultPresets();
-}
-
 function userShiftPresetsStorageKey(user = currentUser) {
   return user?.id
     ? `${USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX}${user.id}`
-    : DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
+    : null;
+}
+
+function userPlanStorageKey(user = currentUser) {
+  return user?.id ? `${USER_PLAN_STORAGE_KEY_PREFIX}${user.id}` : null;
+}
+
+function savePlanSnapshotForUser(user, plan = state) {
+  const storageKey = userPlanStorageKey(user);
+  if (!storageKey || !user?.id) return;
+  try {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        userId: user.id,
+        plan
+      })
+    );
+  } catch {
+    // The editor remains usable when local storage is unavailable.
+  }
 }
 
 function saveShiftPresets(options = {}) {
-  try {
-    localStorage.setItem(activeShiftPresetStorageKey, JSON.stringify(shiftPresets));
-  } catch {
-    // Preset editing remains available when local storage is blocked.
+  if (activeShiftPresetStorageKey) {
+    try {
+      localStorage.setItem(activeShiftPresetStorageKey, JSON.stringify(shiftPresets));
+    } catch {
+      // Preset editing remains available when local storage is blocked.
+    }
   }
   if (options.sync !== false && currentUser) scheduleShiftLibrarySync();
-}
-
-function applyShiftLibrary(rawPresets, user) {
-  const presets = normalizeShiftPresetList(rawPresets);
-  if (!presets) return false;
-  activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
-  shiftPresets = presets;
-  ensureCyclePresetAssignments();
-  saveShiftPresets({ sync: false });
-  renderPresets();
-  renderShiftSettings();
-  renderCycle();
-  updateAllPreview();
-  return true;
 }
 
 function scheduleShiftLibrarySync() {
@@ -431,6 +436,7 @@ function scheduleShiftLibrarySync() {
   const revision = ++shiftLibraryRevision;
   window.clearTimeout(shiftLibrarySyncTimer);
   shiftLibrarySyncTimer = window.setTimeout(async () => {
+    if (currentUser?.id !== user.id || revision !== shiftLibraryRevision) return;
     try {
       await api("/api/shift-library", {
         method: "PUT",
@@ -459,25 +465,12 @@ async function loadShiftLibraryForUser(user) {
   const userKey = userShiftPresetsStorageKey(user);
   try {
     const data = await api("/api/shift-library");
-    if (data.presets?.length) {
-      applyShiftLibrary(data.presets, user);
-      return;
-    }
-    const saved = await api("/api/shift-library", {
-      method: "PUT",
-      body: JSON.stringify({ presets: shiftPresets })
-    });
-    applyShiftLibrary(saved.presets, user);
+    const remotePresets = normalizeShiftPresetList(data.presets);
+    if (remotePresets) return remotePresets;
   } catch (error) {
     console.warn("shift_library_load_failed", error);
-    const cached = readStoredShiftPresets(userKey);
-    activeShiftPresetStorageKey = userKey;
-    if (cached) {
-      applyShiftLibrary(cached, user);
-    } else {
-      saveShiftPresets({ sync: false });
-    }
   }
+  return readStoredShiftPresets(userKey) ?? cloneDefaultPresets();
 }
 
 function getShiftPreset(id) {
@@ -982,8 +975,16 @@ function renderPresets() {
     .join("");
 }
 
+function editableShiftPresets() {
+  return shiftPresetDraft ?? shiftPresets;
+}
+
+function getEditableShiftPreset(id) {
+  return editableShiftPresets().find((preset) => preset.id === id) ?? null;
+}
+
 function renderShiftSettings() {
-  elements.shiftPresetList.innerHTML = shiftPresets
+  elements.shiftPresetList.innerHTML = editableShiftPresets()
     .map((preset, index) => {
       const isOff = preset.kind === "off";
       const allDayRest = isAllDayRest(preset);
@@ -1118,28 +1119,60 @@ function syncShiftTimezoneButton() {
 }
 
 function openShiftSettings() {
+  shiftPresetDraft = shiftPresets.map((preset) => ({ ...preset }));
   renderShiftSettings();
   if (!elements.shiftSettingsDialog.open) elements.shiftSettingsDialog.showModal();
 }
 
 function closeShiftSettings() {
+  shiftPresetDraft = null;
+  if (elements.shiftSettingsDialog.open) elements.shiftSettingsDialog.close();
+}
+
+function commitShiftSettings() {
+  if (!shiftPresetDraft) {
+    closeShiftSettings();
+    return;
+  }
+  const nextPresets = normalizeShiftPresetList(shiftPresetDraft);
+  if (!nextPresets) {
+    showToast(t("shiftSettings.keepOne"), "error");
+    return;
+  }
+
+  const previousSignature = JSON.stringify(shiftPresets);
+  const nextIds = new Set(nextPresets.map((preset) => preset.id));
+  const removedIds = new Set(
+    shiftPresets.filter((preset) => !nextIds.has(preset.id)).map((preset) => preset.id)
+  );
+  for (const shift of state.cycle) {
+    if (removedIds.has(shift.presetId)) detachShiftFromPreset(shift);
+  }
+
+  shiftPresets = nextPresets;
+  for (const preset of shiftPresets) syncCycleShiftsToPreset(preset);
+  shiftPresetDraft = null;
+
+  if (JSON.stringify(shiftPresets) !== previousSignature) {
+    saveShiftPresets();
+    renderPresets();
+    renderCycle();
+    updateAllPreview();
+    if (removedIds.size) showToast(t("shiftSettings.removed"));
+  }
   if (elements.shiftSettingsDialog.open) elements.shiftSettingsDialog.close();
 }
 
 function updateShiftPreset(id, patch) {
-  const preset = getShiftPreset(id);
+  const preset = getEditableShiftPreset(id);
   if (!preset) return null;
   Object.assign(preset, patch);
-  syncCycleShiftsToPreset(preset);
-  saveShiftPresets();
-  renderPresets();
-  renderCycle();
-  updateAllPreview();
   return preset;
 }
 
 function addCustomShiftPreset(kind = "work") {
-  if (shiftPresets.length >= MAX_SHIFT_PRESETS) {
+  const presets = editableShiftPresets();
+  if (presets.length >= MAX_SHIFT_PRESETS) {
     showToast(t("shiftSettings.tooMany"), "error");
     return;
   }
@@ -1155,9 +1188,7 @@ function addCustomShiftPreset(kind = "work") {
     visibleOnHome: true,
     removable: true
   };
-  shiftPresets.push(preset);
-  saveShiftPresets();
-  renderPresets();
+  presets.push(preset);
   renderShiftSettings();
   requestAnimationFrame(() => {
     const input = elements.shiftPresetList.querySelector(
@@ -1170,7 +1201,7 @@ function addCustomShiftPreset(kind = "work") {
 }
 
 function changeShiftPresetKind(id, kind) {
-  const preset = getShiftPreset(id);
+  const preset = getEditableShiftPreset(id);
   if (!preset || preset.kind === kind || !["work", "off"].includes(kind)) return;
   const isOff = kind === "off";
   updateShiftPreset(id, {
@@ -1185,7 +1216,7 @@ function changeShiftPresetKind(id, kind) {
 }
 
 function setShiftPresetAllDayRest(id, allDayRest) {
-  const preset = getShiftPreset(id);
+  const preset = getEditableShiftPreset(id);
   if (!preset || preset.kind !== "off") return;
   updateShiftPreset(
     id,
@@ -1197,9 +1228,10 @@ function setShiftPresetAllDayRest(id, allDayRest) {
 }
 
 async function removeShiftPreset(id) {
-  const preset = getShiftPreset(id);
+  const presets = editableShiftPresets();
+  const preset = getEditableShiftPreset(id);
   if (!preset) return;
-  if (shiftPresets.length <= 1) {
+  if (presets.length <= 1) {
     showToast(t("shiftSettings.keepOne"), "error");
     return;
   }
@@ -1210,30 +1242,21 @@ async function removeShiftPreset(id) {
       danger: true
     });
     if (!confirmed) return;
-    for (const shift of state.cycle) {
-      if (shift.presetId === id) detachShiftFromPreset(shift);
-    }
   }
-  shiftPresets = shiftPresets.filter((item) => item.id !== id);
-  saveShiftPresets();
-  renderPresets();
+  shiftPresetDraft = presets.filter((item) => item.id !== id);
   renderShiftSettings();
-  renderCycle();
-  updateAllPreview();
-  showToast(t("shiftSettings.removed"));
 }
 
 function toggleShiftPresetVisibility(id) {
-  const preset = getShiftPreset(id);
+  const presets = editableShiftPresets();
+  const preset = getEditableShiftPreset(id);
   if (!preset) return;
   const isVisible = preset.visibleOnHome !== false;
-  if (isVisible && shiftPresets.filter((item) => item.visibleOnHome !== false).length <= 1) {
+  if (isVisible && presets.filter((item) => item.visibleOnHome !== false).length <= 1) {
     showToast(t("shiftSettings.keepOneVisible"), "error");
     return;
   }
   preset.visibleOnHome = !isVisible;
-  saveShiftPresets();
-  renderPresets();
   const button = elements.shiftPresetList.querySelector(
     `[data-preset-action="visibility"][data-id="${id}"]`
   );
@@ -1729,14 +1752,23 @@ function updateAllPreview() {
   invalidateLinks();
 }
 
-function scheduleSave() {
+function cancelScheduledPlanSave() {
   window.clearTimeout(savedPlanTimer);
+  savedPlanTimer = 0;
+}
+
+function flushPlanSaveForUser(user = currentUser) {
+  cancelScheduledPlanSave();
+  if (user?.id) savePlanSnapshotForUser(user, state);
+}
+
+function scheduleSave() {
+  cancelScheduledPlanSave();
+  const user = currentUser;
+  if (!user?.id) return;
   savedPlanTimer = window.setTimeout(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      // The generator remains usable when storage is unavailable.
-    }
+    if (currentUser?.id !== user.id) return;
+    savePlanSnapshotForUser(user, state);
   }, 120);
 }
 
@@ -2124,6 +2156,9 @@ function localizeBuiltInData() {
   for (const preset of shiftPresets) {
     preset.name = localizeBuiltInName(preset.name);
   }
+  for (const preset of shiftPresetDraft ?? []) {
+    preset.name = localizeBuiltInName(preset.name);
+  }
 }
 
 async function toggleLanguage() {
@@ -2281,16 +2316,15 @@ function showAuthView(focusLogin = false) {
 async function refreshSession() {
   try {
     const data = await api("/api/auth/me");
-    currentUser = data.user;
-    if (currentUser) await loadShiftLibraryForUser(currentUser);
+    if (data.user) await establishAuthenticatedSession(data.user);
+    else clearAuthenticatedState();
   } catch {
-    currentUser = null;
+    clearAuthenticatedState();
   } finally {
     setWelcomeAuthReady(true);
     if (!currentUser) setWelcomeAuthStatus("");
   }
-  applyUserUI();
-  if (currentUser && !(await restoreActiveCalendarContext())) invalidateLinks();
+  if (currentUser) applyUserUI();
 }
 
 function setAuthTab(tab) {
@@ -2390,11 +2424,66 @@ function authStatusSetter(formElement) {
 }
 
 async function establishAuthenticatedSession(user) {
+  const previousUser = currentUser;
+  if (previousUser?.id && previousUser.id !== user.id) {
+    flushPlanSaveForUser(previousUser);
+  }
+  const revision = ++workspaceRevision;
+  cancelScheduledPlanSave();
+  shiftLibraryRevision += 1;
+  window.clearTimeout(shiftLibrarySyncTimer);
+  closeShiftSettings();
   currentUser = user;
-  await loadShiftLibraryForUser(currentUser);
+  activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
+  shiftPresets = cloneDefaultPresets();
+  state = createDefaultState();
+  calendars = [];
+  activeCalendarId = null;
   currentLinks = null;
+  mergedSubscription = null;
+  selectedMergedSubscription = null;
+  selectedCalendarIds.clear();
+  selectedMergedRequestId += 1;
+
+  const [loadedPresets, calendarResult] = await Promise.all([
+    loadShiftLibraryForUser(user),
+    loadCalendarsForWorkspace()
+  ]);
+  if (revision !== workspaceRevision || currentUser?.id !== user.id) return false;
+
+  shiftPresets = loadedPresets;
+  const ownedCalendarIds = calendarResult
+    ? new Set(calendarResult.map((calendar) => calendar.id))
+    : null;
+  state =
+    loadStoredPlanForUser(user, ownedCalendarIds) ??
+    (calendarResult ? loadLegacyPlanForUser(user, ownedCalendarIds) : null) ??
+    createDefaultState();
+  timezoneConfirmedForLink = getLanguage() !== "en";
+  localizeBuiltInData();
+  ensureCyclePresetAssignments();
+  activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
+  saveShiftPresets({ sync: false });
+  savePlanSnapshotForUser(user, state);
+
+  selectedShiftId = state.todayId;
+  if (calendarResult === null) {
+    calendars = [];
+    activeCalendarId = null;
+    currentLinks = null;
+    renderCalendarList();
+  } else {
+    applyCalendarContextFromList(calendarResult);
+  }
+  renderPresets();
+  syncFieldValues();
+  renderCycle();
+  renderPreview();
+  renderCalendarList();
+  renderMergedSubscription();
   applyUserUI();
-  if (!(await restoreActiveCalendarContext())) invalidateLinks();
+  if (!activeCalendarId) invalidateLinks();
+  return true;
 }
 
 async function handleLogin(event) {
@@ -2524,8 +2613,11 @@ async function handlePasswordChange(event) {
 }
 
 function clearAuthenticatedState() {
+  workspaceRevision += 1;
+  cancelScheduledPlanSave();
   shiftLibraryRevision += 1;
   window.clearTimeout(shiftLibrarySyncTimer);
+  closeShiftSettings();
   currentUser = null;
   calendars = [];
   adminUsers = [];
@@ -2536,16 +2628,22 @@ function clearAuthenticatedState() {
   selectedMergedRequestId += 1;
   activeCalendarId = null;
   currentLinks = null;
-  activeShiftPresetStorageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
-  shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
-  ensureCyclePresetAssignments();
+  activeShiftPresetStorageKey = null;
+  shiftPresets = cloneDefaultPresets();
+  state = createDefaultState();
+  selectedShiftId = state.todayId;
   renderPresets();
+  syncFieldValues();
   renderShiftSettings();
   renderCycle();
+  renderPreview();
+  renderCalendarList();
+  renderMergedSubscription();
   applyUserUI();
 }
 
 async function logout() {
+  flushPlanSaveForUser();
   try {
     await flushShiftLibrarySync();
   } catch {
@@ -2604,32 +2702,45 @@ async function persistCalendar() {
   return currentLinks;
 }
 
-async function restoreActiveCalendarContext() {
-  if (!currentUser || !state.calendarId) return false;
+async function loadCalendarsForWorkspace() {
   try {
     const data = await api("/api/calendars");
-    calendars = data.calendars || [];
-    const calendar = calendars.find((item) => item.id === state.calendarId);
-    if (!calendar) {
-      activeCalendarId = null;
-      state.calendarId = null;
-      currentLinks = null;
-      renderCalendarList();
-      scheduleSave();
-      return false;
-    }
-
-    activeCalendarId = calendar.id;
-    currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
-    elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
-    elements.copyLinkIcon.disabled = false;
-    renderCalendarList();
-    updateValidation();
-    scheduleSave();
-    return true;
+    return Array.isArray(data.calendars) ? data.calendars : [];
   } catch {
+    return null;
+  }
+}
+
+function applyCalendarContextFromList(calendarList) {
+  calendars = Array.isArray(calendarList) ? calendarList : [];
+  const calendar = state.calendarId
+    ? calendars.find((item) => item.id === state.calendarId)
+    : null;
+
+  if (!calendar) {
+    activeCalendarId = null;
+    if (state.calendarId && Array.isArray(calendarList)) state.calendarId = null;
+    currentLinks = null;
+    renderCalendarList();
     return false;
   }
+
+  activeCalendarId = calendar.id;
+  currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
+  elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
+  elements.copyLinkIcon.disabled = false;
+  renderCalendarList();
+  return true;
+}
+
+async function restoreActiveCalendarContext() {
+  if (!currentUser) return false;
+  const calendarList = await loadCalendarsForWorkspace();
+  if (calendarList === null) return false;
+  const restored = applyCalendarContextFromList(calendarList);
+  updateValidation();
+  scheduleSave();
+  return restored;
 }
 
 async function ensureLinks(confirmTimezone = true) {
@@ -3513,10 +3624,32 @@ function showToast(message, type = "success") {
   }, 3200);
 }
 
-function loadStoredPlan() {
+function loadStoredPlanForUser(user, ownedCalendarIds = null) {
+  const storageKey = userPlanStorageKey(user);
+  if (!storageKey || !user?.id) return null;
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? normalizeClientPlan(JSON.parse(stored)) : null;
+    const stored = JSON.parse(localStorage.getItem(storageKey));
+    if (!stored || stored.userId !== user.id) return null;
+    const plan = normalizeClientPlan(stored.plan ?? stored);
+    if (ownedCalendarIds instanceof Set && plan.calendarId && !ownedCalendarIds.has(plan.calendarId)) {
+      plan.calendarId = null;
+    }
+    return plan;
+  } catch {
+    return null;
+  }
+}
+
+function loadLegacyPlanForUser(user, ownedCalendarIds) {
+  if (!(ownedCalendarIds instanceof Set)) return null;
+  try {
+    const stored = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!stored) return null;
+    const plan = normalizeClientPlan(JSON.parse(stored));
+    if (!plan.calendarId || !ownedCalendarIds.has(plan.calendarId)) return null;
+    savePlanSnapshotForUser(user, plan);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return plan;
   } catch {
     return null;
   }
@@ -3718,10 +3851,17 @@ function bindEvents() {
   elements.backupImportForm.addEventListener("submit", importAdminBackup);
 
   elements.shiftSettingsClose.addEventListener("click", closeShiftSettings);
-  elements.shiftSettingsDone.addEventListener("click", closeShiftSettings);
+  elements.shiftSettingsDone.addEventListener("click", commitShiftSettings);
   elements.shiftTimezoneButton.addEventListener("click", openTimezoneDialog);
   elements.shiftSettingsDialog.addEventListener("click", (event) => {
     if (event.target === elements.shiftSettingsDialog) closeShiftSettings();
+  });
+  elements.shiftSettingsDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeShiftSettings();
+  });
+  elements.shiftSettingsDialog.addEventListener("close", () => {
+    shiftPresetDraft = null;
   });
   elements.addShiftPreset.addEventListener("click", () => addCustomShiftPreset("work"));
   elements.addRestPreset.addEventListener("click", () => addCustomShiftPreset("off"));
@@ -3735,7 +3875,7 @@ function bindEvents() {
   elements.shiftPresetList.addEventListener("change", (event) => {
     const input = event.target.closest("[data-preset-field]");
     if (!input) return;
-    const preset = getShiftPreset(input.dataset.id);
+    const preset = getEditableShiftPreset(input.dataset.id);
     if (!preset) return;
     if (input.dataset.presetField === "name") {
       const name =
@@ -3929,10 +4069,9 @@ async function initialize() {
   syncPageScrollLock();
   applyTheme(document.documentElement.dataset.theme, { persist: false });
   timezoneConfirmedForLink = getLanguage() !== "en";
-  shiftPresets = loadShiftPresets();
-  state = loadStoredPlan() ?? createDefaultState();
+  shiftPresets = cloneDefaultPresets();
+  state = createDefaultState();
   localizeBuiltInData();
-  ensureCyclePresetAssignments();
   renderPresets();
   syncFieldValues();
   renderCycle();
