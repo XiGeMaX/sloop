@@ -9,21 +9,36 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eff1eb" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141612" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="application-name" content="Sloop" />
+    <meta name="apple-mobile-web-app-title" content="Sloop" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta
       name="description"
       content="自由组合周期班次，生成可订阅的 ICS 日历链接。"
     />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Sloop · 轮转班表" />
+    <meta property="og:description" content="自由组合周期班次，生成可订阅的 ICS 日历链接。" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Sloop · 轮转班表" />
+    <meta name="twitter:description" content="自由组合周期班次，生成可订阅的 ICS 日历链接。" />
+    <meta name="twitter:image" content="/og-image.png" />
     <title>Sloop · 轮转班表</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/brand/sloop-app-icon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/assets/brand/sloop-icon-180.png" />
+    <link rel="mask-icon" href="/assets/brand/sloop-mark.svg" color="#181B17" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Sloop 首页" data-nav="builder">
-        <span class="brand-mark" aria-hidden="true">
-          <span></span>
-          <span></span>
-        </span>
+        <img class="brand-mark" src="/assets/brand/sloop-icon.svg" alt="" width="24" height="24" />
         <span class="brand-name">Sloop</span>
       </a>
 
@@ -64,20 +79,18 @@
             </label>
           </header>
 
-          <div class="account-strip" id="accountStrip">
-            <span class="account-strip-icon" data-icon="link" aria-hidden="true"></span>
-            <span id="accountStripText">游客订阅覆盖未来 3 个月</span>
-            <button type="button" id="inlineAuthButton">登录或注册</button>
-          </div>
-
           <section class="builder" aria-labelledby="cycle-heading">
             <div class="section-heading">
-              <div>
+              <div class="section-heading-title">
                 <p class="section-index">01</p>
                 <h2 id="cycle-heading">周期组合</h2>
               </div>
-              <p class="section-meta" id="cycleMeta">0 天循环</p>
+              <button class="section-settings-trigger" type="button" data-shift-settings>
+                <span data-icon="settings" aria-hidden="true"></span>
+                <span>班次设置</span>
+              </button>
             </div>
+            <p class="section-meta" id="cycleMeta">0 天循环</p>
 
             <div class="today-summary">
               <span class="today-summary-label">今天</span>
@@ -89,12 +102,18 @@
 
             <div class="cycle-list" id="cycleList"></div>
 
-            <div class="builder-footer">
-              <button class="add-custom" id="addCustom" type="button">
-                <span data-icon="plus" aria-hidden="true"></span>
-                <span>自定义班次</span>
-              </button>
+            <div class="mobile-cycle-composer" aria-label="移动端周期组合编辑器">
+              <div class="mobile-composer-heading">
+                <span class="mobile-composer-copy">
+                  <strong>调整组合</strong>
+                  <span>点选班次后在下方调整</span>
+                </span>
+              </div>
+              <div class="mobile-cycle-strip" id="mobileCycleStrip" aria-label="周期班次"></div>
+              <div class="mobile-shift-panel" id="mobileShiftPanel"></div>
+            </div>
 
+            <div class="builder-footer">
               <label class="switch-row">
                 <span>
                   <strong>休息日写入日历</strong>
@@ -152,6 +171,26 @@
               </span>
             </div>
 
+            <label class="coverage-control" id="coverageControl" hidden>
+              <span class="coverage-control-copy">
+                <strong>订阅时长</strong>
+                <small>登录用户最长 24 个月</small>
+              </span>
+              <span class="coverage-control-input">
+                <input
+                  id="subscriptionMonths"
+                  type="number"
+                  min="1"
+                  max="24"
+                  step="1"
+                  value="12"
+                  inputmode="numeric"
+                  aria-label="订阅时长，单位月"
+                />
+                <span>个月</span>
+              </span>
+            </label>
+
             <div class="link-preview" id="linkPreview">
               <span class="link-icon" data-icon="link" aria-hidden="true"></span>
               <span class="link-text" id="linkText">生成后显示日历链接</span>
@@ -161,8 +200,8 @@
             </div>
 
             <button class="primary-action" id="copyLink" type="button">
-              <span data-icon="link" aria-hidden="true"></span>
-              <span id="primaryActionLabel">复制 3 个月订阅链接</span>
+              <span id="primaryActionIcon" data-icon="download" aria-hidden="true"></span>
+              <span id="primaryActionLabel">下载 6 个月 .ics</span>
             </button>
 
             <div class="secondary-actions">
@@ -172,7 +211,7 @@
               </button>
               <button id="downloadIcs" type="button">
                 <span data-icon="download" aria-hidden="true"></span>
-                <span>下载 .ics</span>
+                <span id="downloadIcsLabel">下载 6 个月 .ics</span>
               </button>
               <button id="openCalendar" type="button">
                 <span data-icon="calendarPlus" aria-hidden="true"></span>
@@ -181,7 +220,7 @@
             </div>
 
             <p class="privacy-note" id="privacyNote">
-              游客链接由服务端签名，最多覆盖未来 3 个月。班次信息不包含账户或个人资料。
+              推荐游客下载 .ics，最多覆盖 6 个月。临时订阅链接覆盖 3 个月，7 天后失效并定期清除。
             </p>
           </section>
         </aside>
@@ -198,6 +237,31 @@
             <span>新建周期</span>
           </button>
         </header>
+        <section
+          class="merged-subscription"
+          id="mergedSubscription"
+          aria-labelledby="mergedSubscriptionTitle"
+          hidden
+        >
+          <div class="merged-subscription-copy">
+            <span class="merged-subscription-icon" data-icon="layers" aria-hidden="true"></span>
+            <div>
+              <div class="merged-subscription-heading">
+                <h2 id="mergedSubscriptionTitle">合并订阅</h2>
+                <span id="mergedCalendarCount">0 个周期</span>
+                <button class="merged-selection-clear" id="clearMergedSelection" type="button" hidden>
+                  清除
+                </button>
+              </div>
+              <p id="mergedSubscriptionDescription">自动包含全部已保存周期</p>
+              <code id="mergedSubscriptionLink"></code>
+            </div>
+          </div>
+          <button class="view-primary merged-subscription-action" id="copyMergedSubscription" type="button">
+            <span data-icon="copy" aria-hidden="true"></span>
+            <span id="mergedSubscriptionActionLabel">复制全部链接</span>
+          </button>
+        </section>
         <div class="calendar-list" id="calendarList"></div>
       </section>
 
@@ -275,6 +339,23 @@
       </section>
     </main>
 
+    <dialog class="shift-settings-dialog" id="shiftSettingsDialog" aria-labelledby="shiftSettingsTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button class="dialog-close" id="shiftSettingsClose" type="button" aria-label="关闭">
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <div class="shift-settings-heading">
+        <p class="eyebrow">班次库</p>
+        <h2 id="shiftSettingsTitle">班次设置</h2>
+      </div>
+      <div class="shift-preset-list" id="shiftPresetList"></div>
+      <button class="shift-preset-add" id="addShiftPreset" type="button">
+        <span data-icon="plus" aria-hidden="true"></span>
+        <span>添加自定义班次</span>
+      </button>
+      <button class="view-primary shift-settings-done" id="shiftSettingsDone" type="button">完成</button>
+    </dialog>
+
     <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
       <div class="dialog-handle" aria-hidden="true"></div>
       <button class="dialog-close" id="authClose" type="button" aria-label="关闭">
@@ -288,15 +369,98 @@
       </div>
 
       <div class="account-panel" id="accountPanel" hidden>
-        <div class="account-panel-identity">
-          <span class="account-panel-avatar" id="accountPanelAvatar"></span>
-          <span>
-            <strong id="accountPanelName"></strong>
-            <small id="accountPanelUsername"></small>
-          </span>
+        <div class="account-overview">
+          <div class="account-panel-identity">
+            <span class="account-panel-avatar" id="accountPanelAvatar"></span>
+            <span>
+              <strong id="accountPanelName"></strong>
+              <small id="accountPanelUsername"></small>
+            </span>
+          </div>
+          <span class="status-pill" id="accountPanelRole"></span>
         </div>
-        <span class="status-pill" id="accountPanelRole"></span>
-        <button class="view-primary" id="logoutButton" type="button">退出登录</button>
+
+        <form class="account-form" id="profileForm">
+          <div class="account-section-heading">
+            <h3>个人资料</h3>
+            <span>登录与显示名称</span>
+          </div>
+          <div class="account-field-grid">
+            <label>
+              <span>用户名</span>
+              <input
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                minlength="3"
+                maxlength="24"
+                required
+              />
+            </label>
+            <label>
+              <span>昵称</span>
+              <input name="nickname" type="text" autocomplete="nickname" maxlength="30" required />
+            </label>
+          </div>
+          <p class="form-note">修改用户名后需使用新用户名登录，订阅链接保持不变。</p>
+          <button class="account-save" id="profileSubmit" type="submit">
+            <span data-icon="save" aria-hidden="true"></span>
+            <span>保存资料</span>
+          </button>
+          <p class="form-status" id="profileStatus" aria-live="polite"></p>
+        </form>
+
+        <form class="account-form" id="passwordForm">
+          <div class="account-section-heading">
+            <h3>修改密码</h3>
+            <span>其他设备将退出登录</span>
+          </div>
+          <label>
+            <span>当前密码</span>
+            <input
+              name="currentPassword"
+              type="password"
+              autocomplete="current-password"
+              minlength="8"
+              maxlength="128"
+              required
+            />
+          </label>
+          <div class="account-field-grid">
+            <label>
+              <span>新密码</span>
+              <input
+                name="newPassword"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+            <label>
+              <span>确认新密码</span>
+              <input
+                name="confirmPassword"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+          </div>
+          <button class="account-save" id="passwordSubmit" type="submit">
+            <span data-icon="settings" aria-hidden="true"></span>
+            <span>更新密码</span>
+          </button>
+          <p class="form-status" id="passwordStatus" aria-live="polite"></p>
+        </form>
+
+        <button class="account-logout" id="logoutButton" type="button">退出登录</button>
       </div>
 
       <form class="auth-form" id="loginForm">
@@ -360,6 +524,45 @@
       </form>
 
       <p class="auth-status" id="authStatus" aria-live="polite"></p>
+    </dialog>
+
+    <dialog class="auth-dialog admin-password-dialog" id="adminPasswordDialog" aria-labelledby="adminPasswordTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button class="dialog-close" id="adminPasswordClose" type="button" aria-label="关闭">
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <h2 id="adminPasswordTitle">重置密码</h2>
+      <p class="admin-reset-target" id="adminPasswordTarget"></p>
+      <form class="auth-form" id="adminPasswordForm">
+        <label>
+          <span>新密码</span>
+          <input
+            name="newPassword"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            maxlength="128"
+            required
+          />
+        </label>
+        <label>
+          <span>确认新密码</span>
+          <input
+            name="confirmPassword"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            maxlength="128"
+            required
+          />
+        </label>
+        <p class="form-note">重置后，该用户在所有设备上的登录会话将失效。</p>
+        <button class="view-primary" type="submit">
+          <span data-icon="settings" aria-hidden="true"></span>
+          <span>重置密码</span>
+        </button>
+        <p class="form-status" id="adminPasswordStatus" aria-live="polite"></p>
+      </form>
     </dialog>
 
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>

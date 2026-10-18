@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash, createHmac, pbkdf2Sync } from "node:crypto";
 import test from "node:test";
 import { deflateSync } from "node:zlib";
 import worker, {
   buildCalendar,
+  buildMergedCalendar,
   decodePlan,
   escapeIcsText,
   foldIcsLine,
@@ -30,9 +32,211 @@ function encodeJson(value) {
   return `j${Buffer.from(JSON.stringify(value)).toString("base64url")}`;
 }
 
-async function createTestGuestPath() {
+function createGuestDb() {
+  const records = new Map();
+  return {
+    records,
+    prepare(sql) {
+      let values = [];
+      const statement = {
+        bind(...nextValues) {
+          values = nextValues;
+          return statement;
+        },
+        async run() {
+          if (/^\s*DELETE FROM guest_subscriptions/i.test(sql)) {
+            let changes = 0;
+            for (const [key, record] of records) {
+              if (record.expires_at <= values[0]) {
+                records.delete(key);
+                changes += 1;
+              }
+            }
+            return { meta: { changes } };
+          }
+          if (/^\s*INSERT INTO guest_subscriptions/i.test(sql)) {
+            records.set(values[1], {
+              plan_json: values[2],
+              months: values[3],
+              created_at: values[4],
+              expires_at: values[5]
+            });
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        },
+        async first() {
+          if (/COUNT\(\*\).*guest_subscriptions/is.test(sql)) {
+            const active = [...records.values()].filter(
+              (record) => record.expires_at > values[0]
+            ).length;
+            return { count: active };
+          }
+          if (/SELECT plan_json, months/i.test(sql)) {
+            const record = records.get(values[0]);
+            return record && record.expires_at > values[1] ? record : null;
+          }
+          return null;
+        }
+      };
+      return statement;
+    }
+  };
+}
+
+function sessionHash(token) {
+  return createHash("sha256").update(token).digest("base64");
+}
+
+function passwordHash(password, salt) {
+  return pbkdf2Sync(password, Buffer.from(salt, "base64"), 210000, 32, "sha256").toString(
+    "base64"
+  );
+}
+
+function createAuthFixture() {
+  const passwordSalt = Buffer.alloc(16, 7).toString("base64");
+  const passwordDigest = passwordHash("old-password-123", passwordSalt);
+  const users = new Map([
+    [
+      "admin-1",
+      {
+        id: "admin-1",
+        username: "admin",
+        nickname: "管理员",
+        password_hash: passwordDigest,
+        password_salt: passwordSalt,
+        role: "admin",
+        status: "approved",
+        invite_code: null,
+        created_at: "2026-01-01T00:00:00.000Z",
+        approved_at: "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    [
+      "member-1",
+      {
+        id: "member-1",
+        username: "member",
+        nickname: "小林",
+        password_hash: passwordDigest,
+        password_salt: passwordSalt,
+        role: "user",
+        status: "approved",
+        invite_code: null,
+        created_at: "2026-01-02T00:00:00.000Z",
+        approved_at: "2026-01-02T00:00:00.000Z"
+      }
+    ],
+    [
+      "member-2",
+      {
+        id: "member-2",
+        username: "taken_name",
+        nickname: "阿青",
+        password_hash: passwordDigest,
+        password_salt: passwordSalt,
+        role: "user",
+        status: "approved",
+        invite_code: null,
+        created_at: "2026-01-03T00:00:00.000Z",
+        approved_at: "2026-01-03T00:00:00.000Z"
+      }
+    ]
+  ]);
+  const sessions = new Map([
+    [sessionHash("admin-token"), { user_id: "admin-1", expires_at: 9999999999 }],
+    [sessionHash("member-token"), { user_id: "member-1", expires_at: 9999999999 }],
+    [sessionHash("member-other-token"), { user_id: "member-1", expires_at: 9999999999 }]
+  ]);
+  const db = {
+    users,
+    sessions,
+    prepare(sql) {
+      let values = [];
+      const statement = {
+        bind(...nextValues) {
+          values = nextValues;
+          return statement;
+        },
+        async run() {
+          if (/UPDATE users SET username = \?/i.test(sql)) {
+            const user = users.get(values[2]);
+            if (!user) return { meta: { changes: 0 } };
+            user.username = values[0];
+            user.nickname = values[1];
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE users SET password_hash = \?/i.test(sql)) {
+            const user = users.get(values[2]);
+            if (!user) return { meta: { changes: 0 } };
+            user.password_hash = values[0];
+            user.password_salt = values[1];
+            return { meta: { changes: 1 } };
+          }
+          if (/DELETE FROM sessions WHERE user_id = \? AND token_hash != \?/i.test(sql)) {
+            let changes = 0;
+            for (const [tokenHash, session] of sessions) {
+              if (session.user_id === values[0] && tokenHash !== values[1]) {
+                sessions.delete(tokenHash);
+                changes += 1;
+              }
+            }
+            return { meta: { changes } };
+          }
+          if (/DELETE FROM sessions WHERE user_id = \?/i.test(sql)) {
+            let changes = 0;
+            for (const [tokenHash, session] of sessions) {
+              if (session.user_id === values[0]) {
+                sessions.delete(tokenHash);
+                changes += 1;
+              }
+            }
+            return { meta: { changes } };
+          }
+          return { meta: { changes: 0 } };
+        },
+        async first() {
+          if (/FROM sessions s/i.test(sql)) {
+            const session = sessions.get(values[0]);
+            const user = session && users.get(session.user_id);
+            return user?.status === "approved" && session.expires_at > values[1] ? user : null;
+          }
+          if (/SELECT id FROM users WHERE username = \? AND id != \?/i.test(sql)) {
+            return (
+              [...users.values()].find(
+                (user) => user.username === values[0] && user.id !== values[1]
+              ) || null
+            );
+          }
+          if (/SELECT .* FROM users WHERE id = \?/i.test(sql)) {
+            return users.get(values[0]) || null;
+          }
+          return null;
+        }
+      };
+      return statement;
+    }
+  };
+  return { db, users, sessions, passwordSalt };
+}
+
+function authRequest(path, token, body = null, method = "PATCH") {
+  return new Request(`https://example.com${path}`, {
+    method,
+    headers: {
+      Cookie: `sloop_session=${token}`,
+      Origin: "https://example.com",
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+async function createTestGuestPath(endpoint = "/api/guest-link") {
+  const db = createGuestDb();
   const response = await worker.fetch(
-    new Request("https://example.com/api/guest-link", {
+    new Request(`https://example.com${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -40,10 +244,10 @@ async function createTestGuestPath() {
       },
       body: JSON.stringify({ plan: samplePlan })
     }),
-    { LINK_SIGNING_SECRET: "test-signing-secret" }
+    { DB: db }
   );
   assert.equal(response.status, 200);
-  return (await response.json()).path;
+  return { ...(await response.json()), db };
 }
 
 test("normalizes compact plans and keeps the selected today shift", () => {
@@ -52,6 +256,38 @@ test("normalizes compact plans and keeps the selected today shift", () => {
   assert.equal(plan.cycle.length, 3);
   assert.equal(plan.todayIndex, 1);
   assert.equal(plan.includeRest, true);
+});
+
+test("preserves shift preset references when normalizing plans", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    c: [["w", "白班", "08:00", "20:00", "sky", "day"]]
+  });
+  assert.equal(plan.cycle[0].presetId, "day");
+});
+
+test("supports the expanded shift color palette", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    i: 0,
+    d: 1,
+    r: 0,
+    c: [["w", "青碧班", "08:00", "20:00", "teal"]]
+  });
+  const calendar = buildCalendar(plan, {
+    startDate: "2026-10-18",
+    months: 1,
+    now: testNow
+  });
+
+  assert.equal(plan.cycle[0].tone, "teal");
+  assert.match(calendar, /COLOR:#58a99f/);
+});
+
+test("allows member subscription durations up to 24 months", () => {
+  assert.equal(normalizePlan({ ...samplePlan, d: 18 }).durationMonths, 18);
+  assert.equal(normalizePlan({ ...samplePlan, d: 99 }).durationMonths, 24);
+  assert.equal(normalizePlan(samplePlan).durationMonths, 12);
 });
 
 test("normalizes usernames without requiring email addresses", () => {
@@ -63,6 +299,101 @@ test("normalizes usernames without requiring email addresses", () => {
 test("keeps nickname distinct from username", () => {
   assert.equal(normalizeNickname("  小 林  "), "小 林");
   assert.throws(() => normalizeNickname("   "), /invalid_nickname/);
+});
+
+test("updates the signed-in user's username and nickname without changing sessions", async () => {
+  const { db, sessions } = createAuthFixture();
+  const beforeSessionCount = sessions.size;
+  const conflict = await worker.fetch(
+    authRequest("/api/auth/profile", "member-token", {
+      username: "TAKEN_NAME",
+      nickname: "新昵称"
+    }),
+    { DB: db }
+  );
+  assert.equal(conflict.status, 409);
+  assert.deepEqual(await conflict.json(), { error: "username_exists" });
+
+  const response = await worker.fetch(
+    authRequest("/api/auth/profile", "member-token", {
+      username: "  New_Member  ",
+      nickname: "  新 昵称  "
+    }),
+    { DB: db }
+  );
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.user.username, "new_member");
+  assert.equal(data.user.nickname, "新 昵称");
+  assert.equal(sessions.size, beforeSessionCount);
+});
+
+test("changes the current password and revokes only the user's other sessions", async () => {
+  const { db, users, sessions } = createAuthFixture();
+  const response = await worker.fetch(
+    authRequest("/api/auth/password", "member-token", {
+      currentPassword: "old-password-123",
+      newPassword: "new-password-456"
+    }),
+    { DB: db }
+  );
+
+  assert.equal(response.status, 204);
+  assert.ok(sessions.has(sessionHash("member-token")));
+  assert.equal(sessions.has(sessionHash("member-other-token")), false);
+  assert.ok(sessions.has(sessionHash("admin-token")));
+
+  const member = users.get("member-1");
+  assert.equal(
+    member.password_hash,
+    passwordHash("new-password-456", member.password_salt)
+  );
+});
+
+test("rejects a password change when the current password is wrong", async () => {
+  const { db, users, sessions } = createAuthFixture();
+  const originalHash = users.get("member-1").password_hash;
+  const response = await worker.fetch(
+    authRequest("/api/auth/password", "member-token", {
+      currentPassword: "wrong-password",
+      newPassword: "new-password-456"
+    }),
+    { DB: db }
+  );
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "invalid_current_password" });
+  assert.equal(users.get("member-1").password_hash, originalHash);
+  assert.equal(sessions.has(sessionHash("member-other-token")), true);
+});
+
+test("lets an admin reset a member password and revoke all target sessions", async () => {
+  const { db, users, sessions } = createAuthFixture();
+  const forbidden = await worker.fetch(
+    authRequest("/api/admin/users/member-2/password", "member-token", {
+      newPassword: "member-chosen-789"
+    }),
+    { DB: db }
+  );
+  assert.equal(forbidden.status, 403);
+  assert.deepEqual(await forbidden.json(), { error: "admin_required" });
+
+  const response = await worker.fetch(
+    authRequest("/api/admin/users/member-1/password", "admin-token", {
+      newPassword: "admin-reset-789"
+    }),
+    { DB: db }
+  );
+  assert.equal(response.status, 204);
+  assert.equal(sessions.has(sessionHash("member-token")), false);
+  assert.equal(sessions.has(sessionHash("member-other-token")), false);
+  assert.ok(sessions.has(sessionHash("admin-token")));
+
+  const member = users.get("member-1");
+  assert.equal(
+    member.password_hash,
+    passwordHash("admin-reset-789", member.password_salt)
+  );
 });
 
 test("starts the cycle from the selected shift for today", () => {
@@ -77,7 +408,7 @@ test("starts the cycle from the selected shift for today", () => {
   assert.match(calendar, /DTEND:20261019T000000Z/);
 });
 
-test("supports overnight shifts and transparent rest days", () => {
+test("starts post-night rest when the overnight shift ends", () => {
   const calendar = buildCalendar(normalizePlan(samplePlan), {
     startDate: "2026-10-18",
     months: 1,
@@ -85,8 +416,30 @@ test("supports overnight shifts and transparent rest days", () => {
   });
   assert.match(calendar, /DTSTART:20261018T120000Z/);
   assert.match(calendar, /DTEND:20261019T000000Z/);
-  assert.match(calendar, /DTSTART;VALUE=DATE:20261019/);
+  assert.match(calendar, /DTSTART:20261019T000000Z/);
+  assert.match(calendar, /DTEND:20261020T000000Z/);
+  assert.doesNotMatch(calendar, /DTSTART;VALUE=DATE:20261019/);
   assert.match(calendar, /TRANSP:TRANSPARENT/);
+});
+
+test("keeps regular rest days as all-day events", () => {
+  const calendar = buildCalendar(
+    normalizePlan({
+      ...samplePlan,
+      i: 0,
+      c: [
+        ["w", "白班", "08:00", "20:00", "sky"],
+        ["o", "休息", "00:00", "00:00", "sage"]
+      ]
+    }),
+    {
+      startDate: "2026-10-18",
+      months: 1,
+      now: testNow
+    }
+  );
+  assert.match(calendar, /DTSTART;VALUE=DATE:20261019/);
+  assert.match(calendar, /DTEND;VALUE=DATE:20261020/);
 });
 
 test("applies timezone daylight-saving offsets per event date", () => {
@@ -105,6 +458,140 @@ test("applies timezone daylight-saving offsets per event date", () => {
   assert.match(calendar, /DTSTART:20261101T130000Z/);
 });
 
+test("merges saved calendars without UID collisions", () => {
+  const plan = {
+    ...samplePlan,
+    i: 0,
+    d: 1,
+    r: 0,
+    c: [["w", "白班", "08:00", "20:00", "sky"]]
+  };
+  const calendar = buildMergedCalendar(
+    [
+      {
+        id: "calendar-a",
+        share_slug: "share-a",
+        plan_json: JSON.stringify({ ...plan, t: "周期 A" })
+      },
+      {
+        id: "calendar-b",
+        share_slug: "share-b",
+        plan_json: JSON.stringify({ ...plan, t: "周期 B" })
+      }
+    ],
+    { now: testNow }
+  );
+  const uids = [...calendar.matchAll(/^UID:(.+)$/gm)].map((match) => match[1]);
+
+  assert.equal(uids.length, new Set(uids).size);
+  assert.match(calendar, /X-SLOOP-CALENDAR-COUNT:2/);
+  assert.match(calendar, /CATEGORIES:周期 A/);
+  assert.match(calendar, /CATEGORIES:周期 B/);
+  assert.equal(calendar.match(/BEGIN:VCALENDAR/g)?.length, 1);
+});
+
+test("serves only explicitly signed calendars from a selected merge", async () => {
+  const userId = "visual-user-123456";
+  const selectedIds = ["calendar-a0000000", "calendar-b0000000"];
+  const ownerSignature = createHmac("sha256", "test-signing-secret")
+    .update(`merged-subscription:${userId}`)
+    .digest("base64url");
+  const selectionSignature = createHmac("sha256", "test-signing-secret")
+    .update(`merged-selection:${userId}:${selectedIds.join(",")}`)
+    .digest("base64url");
+  const rows = [
+    {
+      id: selectedIds[0],
+      share_slug: "share-a",
+      plan_json: JSON.stringify({ ...samplePlan, t: "周期 A", d: 1 })
+    },
+    {
+      id: "calendar-c0000000",
+      share_slug: "share-c",
+      plan_json: JSON.stringify({ ...samplePlan, t: "周期 C", d: 1 })
+    }
+  ];
+  const db = {
+    prepare(sql) {
+      return {
+        bind() {
+          return {
+            async first() {
+              return /SELECT status FROM users/i.test(sql) ? { status: "approved" } : null;
+            },
+            async all() {
+              return { results: rows };
+            }
+          };
+        }
+      };
+    }
+  };
+  const token = `${userId}.${ownerSignature}`;
+  const query = new URLSearchParams({
+    ids: selectedIds.join(","),
+    sig: selectionSignature
+  });
+  const response = await worker.fetch(
+    new Request(`https://example.com/api/ics/merged/${token}?${query}`),
+    { DB: db, LINK_SIGNING_SECRET: "test-signing-secret" }
+  );
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /CATEGORIES:周期 A/);
+  assert.doesNotMatch(body, /CATEGORIES:周期 C/);
+  assert.match(body, /X-SLOOP-CALENDAR-COUNT:1/);
+
+  const tamperedQuery = new URLSearchParams({
+    ids: selectedIds.join(","),
+    sig: `${selectionSignature}x`
+  });
+  const tamperedResponse = await worker.fetch(
+    new Request(`https://example.com/api/ics/merged/${token}?${tamperedQuery}`),
+    { DB: db, LINK_SIGNING_SECRET: "test-signing-secret" }
+  );
+  assert.equal(tamperedResponse.status, 404);
+});
+
+test("requires a signed capability token for member subscriptions", async () => {
+  const shareSlug = "member-share-token";
+  const signature = createHmac("sha256", "test-signing-secret")
+    .update(`member-subscription:${shareSlug}`)
+    .digest("base64url");
+  const row = {
+    id: "calendar-row",
+    share_slug: shareSlug,
+    plan_json: JSON.stringify({ ...samplePlan, d: 1 })
+  };
+  const db = {
+    prepare() {
+      return {
+        bind() {
+          return {
+            async first() {
+              return row;
+            }
+          };
+        }
+      };
+    }
+  };
+
+  const signedResponse = await worker.fetch(
+    new Request(`https://example.com/api/ics/${shareSlug}.${signature}`),
+    { DB: db, LINK_SIGNING_SECRET: "test-signing-secret" }
+  );
+  assert.equal(signedResponse.status, 200);
+
+  const unsignedResponse = await worker.fetch(
+    new Request(`https://example.com/api/ics/${shareSlug}`),
+    { DB: db, LINK_SIGNING_SECRET: "test-signing-secret" }
+  );
+  assert.equal(unsignedResponse.status, 404);
+  assert.deepEqual(await unsignedResponse.json(), { error: "calendar_not_found" });
+});
+
 test("decodes deflated share data", async () => {
   const json = JSON.stringify(samplePlan);
   const encoded = `z${deflateSync(Buffer.from(json)).toString("base64url")}`;
@@ -113,15 +600,16 @@ test("decodes deflated share data", async () => {
   assert.equal(plan.todayIndex, 1);
 });
 
-test("creates a signed guest link that serves exactly three months", async () => {
-  const path = await createTestGuestPath();
-  assert.match(path, /^\/api\/guest\.ics\?plan=/);
+test("creates a temporary guest subscription that serves exactly three months", async () => {
+  const { path, db, expiresAt } = await createTestGuestPath();
+  assert.match(path, /^\/api\/guest\.ics\?token=/);
+  assert.ok(expiresAt > Math.floor(Date.now() / 1000));
 
   const response = await worker.fetch(
     new Request(`https://example.com${path}`, {
       headers: { Origin: "https://example.com" }
     }),
-    { LINK_SIGNING_SECRET: "test-signing-secret" }
+    { DB: db }
   );
   const body = await response.text();
 
@@ -130,6 +618,16 @@ test("creates a signed guest link that serves exactly three months", async () =>
   assert.match(body, /X-WR-CALDESC:.*3 个月/);
   assert.match(body, /BEGIN:VCALENDAR/);
   assert.match(body, /END:VCALENDAR/);
+});
+
+test("allows guest ICS exports to cover six months", async () => {
+  const { path, db, months } = await createTestGuestPath("/api/guest-export");
+  assert.equal(months, 6);
+  assert.match(path, /download=1/);
+
+  const response = await worker.fetch(new Request(`https://example.com${path}`), { DB: db });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /X-WR-CALDESC:.*6 个月/);
 });
 
 test("rejects equal start and end times", async () => {
@@ -152,14 +650,24 @@ test("rejects equal start and end times", async () => {
   assert.deepEqual(await response.json(), { error: "shift_times_match" });
 });
 
-test("rejects a tampered guest signature", async () => {
-  const path = await createTestGuestPath();
+test("rejects an invalid guest token", async () => {
+  const { path, db } = await createTestGuestPath();
   const response = await worker.fetch(
-    new Request(`https://example.com${path.replace(/sig=./, "sig=x")}`),
-    { LINK_SIGNING_SECRET: "test-signing-secret" }
+    new Request(`https://example.com${path.replace(/token=./, "token=x")}`),
+    { DB: db }
   );
   assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { error: "invalid_signature" });
+  assert.deepEqual(await response.json(), { error: "link_expired" });
+});
+
+test("scheduled cleanup deletes expired guest subscriptions", async () => {
+  const { db } = await createTestGuestPath();
+  const [record] = db.records.values();
+  record.expires_at = Math.floor(Date.now() / 1000) - 1;
+  let cleanup;
+  await worker.scheduled({}, { DB: db }, { waitUntil(task) { cleanup = task; } });
+  await cleanup;
+  assert.equal(db.records.size, 0);
 });
 
 test("escapes ICS text and folds long UTF-8 lines safely", () => {

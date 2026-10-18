@@ -1,5 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#1b1e1a"/>
-  <path d="M18 19h28v7H25v8h18a8 8 0 0 1 0 16H18v-7h23a2 2 0 0 0 0-4H23a5 5 0 0 1-5-5V19Z" fill="#c8f169"/>
-  <path d="M18 43h7v7h-7z" fill="#74a7ff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Sloop</title>
+  <rect width="64" height="64" rx="15" fill="#181B17"/>
+  <path
+    d="M39 14H30A10 10 0 0 0 30 34H38"
+    fill="none"
+    stroke="#C8F169"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M38 34A10 10 0 0 1 38 54H19"
+    fill="none"
+    stroke="#5F96F4"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>

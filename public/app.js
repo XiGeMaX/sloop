@@ -1,40 +1,63 @@
 const STORAGE_KEY = "sloop.plan.v2";
+const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
 const TIMEZONE = "Asia/Shanghai";
-const TONE_ORDER = ["sky", "indigo", "sage", "sun", "coral", "rose"];
+const GUEST_EXPORT_MONTHS = 6;
+const DEFAULT_MEMBER_MONTHS = 12;
+const MAX_MEMBER_MONTHS = 24;
+const TONE_ORDER = [
+  "sky",
+  "indigo",
+  "sage",
+  "sun",
+  "coral",
+  "rose",
+  "teal",
+  "lime",
+  "plum",
+  "clay",
+  "slate",
+  "berry"
+];
 const TONE_NAMES = {
   sky: "天蓝",
   indigo: "靛蓝",
   sage: "鼠尾草",
   sun: "暖黄",
   coral: "珊瑚",
-  rose: "玫瑰"
+  rose: "玫瑰",
+  teal: "青碧",
+  lime: "青柠",
+  plum: "梅紫",
+  clay: "陶土",
+  slate: "岩蓝",
+  berry: "莓红"
 };
-const PRESETS = {
-  day: {
+const DEFAULT_SHIFT_PRESETS = [
+  {
+    id: "day",
     kind: "work",
     name: "白班",
     start: "08:00",
     end: "20:00",
-    tone: "sky",
-    icon: "sun"
+    tone: "sky"
   },
-  night: {
+  {
+    id: "night",
     kind: "work",
     name: "夜班",
     start: "20:00",
     end: "08:00",
-    tone: "indigo",
-    icon: "moon"
+    tone: "indigo"
   },
-  off: {
+  {
+    id: "off",
     kind: "off",
     name: "休息",
     start: "00:00",
     end: "00:00",
-    tone: "sage",
-    icon: "coffee"
+    tone: "sage"
   }
-};
+];
 const ICON_PATHS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.42 1.42"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
@@ -58,7 +81,10 @@ const ICON_PATHS = {
   save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
-  rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>'
+  rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  arrowLeft: '<path d="m15 18-6-6 6-6"/>',
+  arrowRight: '<path d="m9 18 6-6-6-6"/>',
+  settings: '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h8"/><path d="M16 18h4"/><circle cx="14" cy="18" r="2"/>'
 };
 
 const elements = {
@@ -69,11 +95,12 @@ const elements = {
   includeRest: document.querySelector("#includeRest"),
   presetRow: document.querySelector("#presetRow"),
   cycleList: document.querySelector("#cycleList"),
+  mobileCycleStrip: document.querySelector("#mobileCycleStrip"),
+  mobileShiftPanel: document.querySelector("#mobileShiftPanel"),
   cycleMeta: document.querySelector("#cycleMeta"),
   todayShiftName: document.querySelector("#todayShiftName"),
   todayShiftTime: document.querySelector("#todayShiftTime"),
   cycleLengthLabel: document.querySelector("#cycleLengthLabel"),
-  addCustom: document.querySelector("#addCustom"),
   previewDetails: document.querySelector("#previewDetails"),
   rangeCopy: document.querySelector("#rangeCopy"),
   coverageBadge: document.querySelector("#coverageBadge"),
@@ -81,13 +108,17 @@ const elements = {
   scheduleList: document.querySelector("#scheduleList"),
   eventEstimate: document.querySelector("#eventEstimate"),
   validityBadge: document.querySelector("#validityBadge"),
+  coverageControl: document.querySelector("#coverageControl"),
+  subscriptionMonths: document.querySelector("#subscriptionMonths"),
   linkText: document.querySelector("#linkText"),
   copyLinkIcon: document.querySelector("#copyLinkIcon"),
   copyLink: document.querySelector("#copyLink"),
+  primaryActionIcon: document.querySelector("#primaryActionIcon"),
   primaryActionLabel: document.querySelector("#primaryActionLabel"),
   saveCalendar: document.querySelector("#saveCalendar"),
   saveCalendarLabel: document.querySelector("#saveCalendarLabel"),
   downloadIcs: document.querySelector("#downloadIcs"),
+  downloadIcsLabel: document.querySelector("#downloadIcsLabel"),
   openCalendar: document.querySelector("#openCalendar"),
   privacyNote: document.querySelector("#privacyNote"),
   navCalendars: document.querySelector("#navCalendars"),
@@ -96,11 +127,15 @@ const elements = {
   accountAvatar: document.querySelector("#accountAvatar"),
   accountName: document.querySelector("#accountName"),
   accountRole: document.querySelector("#accountRole"),
-  accountStrip: document.querySelector("#accountStrip"),
-  accountStripText: document.querySelector("#accountStripText"),
-  inlineAuthButton: document.querySelector("#inlineAuthButton"),
   calendarList: document.querySelector("#calendarList"),
   newCalendarButton: document.querySelector("#newCalendarButton"),
+  mergedSubscription: document.querySelector("#mergedSubscription"),
+  mergedCalendarCount: document.querySelector("#mergedCalendarCount"),
+  mergedSubscriptionDescription: document.querySelector("#mergedSubscriptionDescription"),
+  mergedSubscriptionLink: document.querySelector("#mergedSubscriptionLink"),
+  mergedSubscriptionActionLabel: document.querySelector("#mergedSubscriptionActionLabel"),
+  copyMergedSubscription: document.querySelector("#copyMergedSubscription"),
+  clearMergedSelection: document.querySelector("#clearMergedSelection"),
   adminCount: document.querySelector("#adminCount"),
   pendingCount: document.querySelector("#pendingCount"),
   peopleList: document.querySelector("#peopleList"),
@@ -125,13 +160,29 @@ const elements = {
   accountPanelName: document.querySelector("#accountPanelName"),
   accountPanelUsername: document.querySelector("#accountPanelUsername"),
   accountPanelRole: document.querySelector("#accountPanelRole"),
+  profileForm: document.querySelector("#profileForm"),
+  profileSubmit: document.querySelector("#profileSubmit"),
+  profileStatus: document.querySelector("#profileStatus"),
+  passwordForm: document.querySelector("#passwordForm"),
+  passwordSubmit: document.querySelector("#passwordSubmit"),
+  passwordStatus: document.querySelector("#passwordStatus"),
   logoutButton: document.querySelector("#logoutButton"),
+  adminPasswordDialog: document.querySelector("#adminPasswordDialog"),
+  adminPasswordClose: document.querySelector("#adminPasswordClose"),
+  adminPasswordTarget: document.querySelector("#adminPasswordTarget"),
+  adminPasswordForm: document.querySelector("#adminPasswordForm"),
+  adminPasswordStatus: document.querySelector("#adminPasswordStatus"),
+  shiftSettingsDialog: document.querySelector("#shiftSettingsDialog"),
+  shiftSettingsClose: document.querySelector("#shiftSettingsClose"),
+  shiftSettingsDone: document.querySelector("#shiftSettingsDone"),
+  shiftPresetList: document.querySelector("#shiftPresetList"),
+  addShiftPreset: document.querySelector("#addShiftPreset"),
   toastRegion: document.querySelector("#toastRegion")
 };
 
 const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-const coarsePointerQuery = window.matchMedia("(pointer: coarse)");
 
+let shiftPresets = loadShiftPresets();
 let state = createDefaultState();
 let currentUser = null;
 let currentView = "builder";
@@ -139,12 +190,19 @@ let activeCalendarId = null;
 let currentLinks = null;
 let savedPlanTimer = 0;
 let dragState = null;
+let selectedShiftId = null;
 let calendars = [];
+let mergedSubscription = null;
+let selectedMergedSubscription = null;
+let selectedCalendarIds = new Set();
+let selectedMergedRequestId = 0;
 let adminUsers = [];
 let invites = [];
+let adminPasswordUser = null;
 
 const ERROR_MESSAGES = {
   invalid_credentials: "用户名或密码不正确",
+  invalid_current_password: "当前密码不正确",
   username_exists: "这个用户名已经注册",
   invalid_username: "用户名需为 3–24 位，可使用文字、数字、下划线或短横线",
   invalid_password: "密码需为 8–128 位",
@@ -158,10 +216,14 @@ const ERROR_MESSAGES = {
   admin_required: "需要管理员权限",
   calendar_limit: "已达到周期数量上限",
   calendar_not_found: "这个周期不存在",
+  invalid_calendar_selection: "周期选择无效，请重新选择",
+  guest_capacity_reached: "临时订阅名额已满，请稍后再试",
   invite_exists: "邀请码已存在",
   invalid_expiry: "有效期必须晚于现在",
   last_admin: "至少需要保留一名管理员",
   cannot_modify_self: "不能在这里修改自己的管理员状态",
+  cannot_reset_self: "请在账户设置中修改自己的密码",
+  user_not_found: "这个用户不存在",
   signing_secret_missing: "服务端签名尚未配置",
   database_not_configured: "数据库尚未配置"
 };
@@ -180,9 +242,69 @@ function makeId() {
   return crypto.randomUUID?.() ?? `shift-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function makeShift(preset = PRESETS.day) {
+function cloneDefaultPresets() {
+  return DEFAULT_SHIFT_PRESETS.map((preset) => ({ ...preset, removable: false }));
+}
+
+function normalizeShiftPreset(raw, index = 0) {
+  if (!raw || typeof raw !== "object") return null;
+  const storedId = cleanText(raw.id, 80);
+  const id = /^[a-zA-Z0-9_-]+$/.test(storedId) ? storedId : `preset-${index + 1}`;
+  const fixed = DEFAULT_SHIFT_PRESETS.some((preset) => preset.id === id);
+  const kind = raw.kind === "off" ? "off" : "work";
+  const name = cleanText(raw.name, 28) || (kind === "off" ? "休息" : `班次 ${index + 1}`);
+  let start = cleanTime(raw.start, kind === "off" ? "00:00" : "09:00");
+  let end = cleanTime(raw.end, kind === "off" ? "00:00" : "18:00");
+  if (kind === "work" && start === end) {
+    start = "09:00";
+    end = "18:00";
+  }
+  return {
+    id,
+    kind,
+    name,
+    start,
+    end,
+    tone: TONE_ORDER.includes(raw.tone) ? raw.tone : kind === "off" ? "sage" : "sky",
+    removable: fixed ? false : Boolean(raw.removable)
+  };
+}
+
+function loadShiftPresets() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SHIFT_PRESETS_STORAGE_KEY));
+    if (!Array.isArray(stored)) return cloneDefaultPresets();
+    const seen = new Set();
+    const presets = stored
+      .map((preset, index) => normalizeShiftPreset(preset, index))
+      .filter((preset) => {
+        if (!preset || seen.has(preset.id)) return false;
+        seen.add(preset.id);
+        return true;
+      })
+      .slice(0, 12);
+    return presets.length ? presets : cloneDefaultPresets();
+  } catch {
+    return cloneDefaultPresets();
+  }
+}
+
+function saveShiftPresets() {
+  try {
+    localStorage.setItem(SHIFT_PRESETS_STORAGE_KEY, JSON.stringify(shiftPresets));
+  } catch {
+    // Preset editing remains available when local storage is blocked.
+  }
+}
+
+function getShiftPreset(id) {
+  return shiftPresets.find((preset) => preset.id === id) ?? null;
+}
+
+function makeShift(preset = shiftPresets[0] ?? DEFAULT_SHIFT_PRESETS[0]) {
   return {
     id: makeId(),
+    presetId: preset.id || null,
     kind: preset.kind,
     name: preset.name,
     start: preset.start,
@@ -192,17 +314,21 @@ function makeShift(preset = PRESETS.day) {
 }
 
 function createDefaultState() {
+  const day = getShiftPreset("day") ?? DEFAULT_SHIFT_PRESETS[0];
+  const night = getShiftPreset("night") ?? DEFAULT_SHIFT_PRESETS[1];
+  const off = getShiftPreset("off") ?? DEFAULT_SHIFT_PRESETS[2];
   const cycle = [
-    makeShift(PRESETS.day),
-    makeShift(PRESETS.day),
-    makeShift(PRESETS.night),
-    makeShift(PRESETS.night),
-    makeShift(PRESETS.off),
-    makeShift(PRESETS.off)
+    makeShift(day),
+    makeShift(day),
+    makeShift(night),
+    makeShift(night),
+    makeShift(off),
+    makeShift(off)
   ];
   return {
     title: "轮转班表",
     includeRest: false,
+    durationMonths: DEFAULT_MEMBER_MONTHS,
     cycle,
     todayId: cycle[0].id
   };
@@ -237,9 +363,20 @@ function normalizeClientPlan(raw) {
   }
 
   const cycle = sourceCycle.map((source, index) => {
-    const item = Array.isArray(source)
-      ? { kind: source[0], name: source[1], start: source[2], end: source[3], tone: source[4] }
+    const isCompact = Array.isArray(source);
+    const item = isCompact
+      ? {
+          kind: source[0],
+          name: source[1],
+          start: source[2],
+          end: source[3],
+          tone: source[4],
+          presetId: source[5]
+        }
       : source;
+    const hasPresetId = isCompact
+      ? source.length > 5
+      : Boolean(item) && (Object.hasOwn(item, "p") || Object.hasOwn(item, "presetId"));
     const kindValue = String(item?.k ?? item?.kind ?? "w");
     const kind = kindValue === "off" || kindValue === "o" ? "off" : "work";
     const toneValue = String(item?.o ?? item?.tone ?? (kind === "off" ? "sage" : "sky"));
@@ -249,7 +386,8 @@ function normalizeClientPlan(raw) {
       name: cleanText(item?.n ?? item?.name, 28) || (kind === "off" ? "休息" : `班次 ${index + 1}`),
       start: cleanTime(item?.a ?? item?.start, kind === "off" ? "00:00" : "09:00"),
       end: cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00"),
-      tone: TONE_ORDER.includes(toneValue) ? toneValue : "sky"
+      tone: TONE_ORDER.includes(toneValue) ? toneValue : "sky",
+      presetId: hasPresetId ? cleanText(item?.p ?? item?.presetId, 80) || null : undefined
     };
   });
 
@@ -260,6 +398,10 @@ function normalizeClientPlan(raw) {
   return {
     title: cleanText(raw.t ?? raw.title, 64) || "轮转班表",
     includeRest: Boolean(raw.r ?? raw.includeRest),
+    durationMonths: clampSubscriptionMonths(
+      raw.d ?? raw.durationMonths,
+      DEFAULT_MEMBER_MONTHS
+    ),
     cycle,
     todayId: cycle[todayIndex].id
   };
@@ -271,15 +413,73 @@ function compactPlan() {
     t: state.title,
     z: TIMEZONE,
     r: state.includeRest ? 1 : 0,
+    d: clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS),
     i: getTodayIndex(),
     c: state.cycle.map((item) => [
       item.kind === "off" ? "o" : "w",
       item.name,
       item.start,
       item.end,
-      item.tone
+      item.tone,
+      item.presetId || ""
     ])
   };
+}
+
+function presetSignature(preset) {
+  return [
+    preset.kind,
+    preset.name,
+    preset.start,
+    preset.end,
+    preset.tone
+  ].join("\u0000");
+}
+
+function ensureCyclePresetAssignments() {
+  const bySignature = new Map(shiftPresets.map((preset) => [presetSignature(preset), preset]));
+  let changed = false;
+
+  for (const shift of state.cycle) {
+    if (shift.presetId === null) continue;
+    let preset = getShiftPreset(shift.presetId);
+    if (preset) continue;
+
+    const signature = presetSignature(shift);
+    preset = bySignature.get(signature);
+    if (!preset) {
+      preset = {
+        id: `custom-${makeId()}`,
+        kind: shift.kind,
+        name: shift.name,
+        start: shift.start,
+        end: shift.end,
+        tone: shift.tone,
+        removable: true
+      };
+      shiftPresets.push(preset);
+      bySignature.set(signature, preset);
+      changed = true;
+    }
+    shift.presetId = preset.id;
+  }
+
+  if (changed) saveShiftPresets();
+}
+
+function syncCycleShiftsToPreset(preset) {
+  for (const shift of state.cycle) {
+    if (shift.presetId !== preset.id) continue;
+    shift.kind = preset.kind;
+    shift.name = preset.name;
+    shift.start = preset.start;
+    shift.end = preset.end;
+    shift.tone = preset.tone;
+  }
+}
+
+function detachShiftFromPreset(shift) {
+  if (shift) shift.presetId = null;
 }
 
 function getTodayIndex() {
@@ -359,7 +559,15 @@ function formatDate(value) {
 }
 
 function coverageMonths() {
-  return currentUser ? 12 : 3;
+  return currentUser
+    ? clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS)
+    : GUEST_EXPORT_MONTHS;
+}
+
+function clampSubscriptionMonths(value, fallback = DEFAULT_MEMBER_MONTHS) {
+  const months = Number(value);
+  if (!Number.isFinite(months)) return fallback;
+  return Math.max(1, Math.min(MAX_MEMBER_MONTHS, Math.round(months)));
 }
 
 function formatRange() {
@@ -372,8 +580,24 @@ function formatRange() {
   }).format(end)}`;
 }
 
-function shiftTimeLabel(shift) {
-  if (shift.kind === "off") return "全天";
+function isOvernightShift(shift) {
+  return (
+    shift?.kind === "work" &&
+    toMinutes(shift.end) <= toMinutes(shift.start)
+  );
+}
+
+function restStartForIndex(index) {
+  const shift = state.cycle[index];
+  if (shift?.kind !== "off" || state.cycle.length === 0) return null;
+  const previous = state.cycle[(index - 1 + state.cycle.length) % state.cycle.length];
+  return isOvernightShift(previous) ? previous.end : null;
+}
+
+function shiftTimeLabel(shift, restStart = null) {
+  if (shift.kind === "off") {
+    return restStart ? `${restStart} 起 · 24 小时` : "全天";
+  }
   const overnight = toMinutes(shift.end) <= toMinutes(shift.start);
   return `${shift.start}–${overnight ? "次日 " : ""}${shift.end}`;
 }
@@ -392,19 +616,146 @@ function shiftIcon(shift) {
 }
 
 function renderPresets() {
-  elements.presetRow.innerHTML = Object.entries(PRESETS)
-    .map(
-      ([key, preset]) => `
-        <button class="preset-button tone-${preset.tone}" type="button" data-preset="${key}">
-          <span class="preset-glyph">${icon(preset.icon, 16)}</span>
+  const fixed = shiftPresets.filter((preset) => !preset.removable);
+  const custom = shiftPresets.filter((preset) => preset.removable);
+  const presetButton = (preset) => `
+        <button class="preset-button tone-${preset.tone}" type="button" data-preset="${preset.id}">
+          <span class="preset-glyph">${icon(shiftIcon(preset), 16)}</span>
           <span class="preset-copy">
             <strong>${escapeHTML(preset.name)}</strong>
             <small>${preset.kind === "off" ? "全天" : `${preset.start}–${preset.end}`}</small>
           </span>
         </button>
-      `
-    )
+      `;
+
+  elements.presetRow.innerHTML = [...fixed, ...custom].map(presetButton).join("");
+}
+
+function renderShiftSettings() {
+  elements.shiftPresetList.innerHTML = shiftPresets
+    .map((preset, index) => {
+      const tones = TONE_ORDER.map(
+        (tone) => `
+          <button
+            class="preset-tone tone-${tone}"
+            type="button"
+            data-preset-action="tone"
+            data-id="${preset.id}"
+            data-tone="${tone}"
+            aria-label="${TONE_NAMES[tone]}"
+            aria-pressed="${preset.tone === tone}"
+            title="${TONE_NAMES[tone]}"
+          ></button>
+        `
+      ).join("");
+
+      return `
+        <article class="shift-preset-card tone-${preset.tone}" data-id="${preset.id}">
+          <div class="shift-preset-card-heading">
+            <span class="shift-preset-index">${String(index + 1).padStart(2, "0")}</span>
+            <input
+              class="shift-preset-name"
+              type="text"
+              value="${escapeHTML(preset.name)}"
+              maxlength="28"
+              data-preset-field="name"
+              data-id="${preset.id}"
+              aria-label="第 ${index + 1} 个班次名称"
+              autocomplete="off"
+            />
+            ${
+              preset.removable
+                ? `<button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="删除${escapeHTML(preset.name)}">${icon("trash", 15)}</button>`
+                : ""
+            }
+          </div>
+          <div class="shift-preset-time">
+            ${
+              preset.kind === "off"
+                ? '<span class="shift-preset-off">全天休息</span>'
+                : `
+                  <label>
+                    <span>开始</span>
+                    <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(preset.name)}开始时间" />
+                  </label>
+                  <span aria-hidden="true">→</span>
+                  <label>
+                    <span>结束</span>
+                    <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(preset.name)}结束时间" />
+                  </label>
+                `
+            }
+          </div>
+          <div class="shift-preset-tones" role="group" aria-label="${escapeHTML(preset.name)}颜色">
+            ${tones}
+          </div>
+        </article>
+      `;
+    })
     .join("");
+}
+
+function openShiftSettings() {
+  renderShiftSettings();
+  if (!elements.shiftSettingsDialog.open) elements.shiftSettingsDialog.showModal();
+}
+
+function closeShiftSettings() {
+  if (elements.shiftSettingsDialog.open) elements.shiftSettingsDialog.close();
+}
+
+function updateShiftPreset(id, patch) {
+  const preset = getShiftPreset(id);
+  if (!preset) return null;
+  Object.assign(preset, patch);
+  syncCycleShiftsToPreset(preset);
+  saveShiftPresets();
+  renderPresets();
+  renderCycle();
+  updateAllPreview();
+  return preset;
+}
+
+function addCustomShiftPreset() {
+  if (shiftPresets.length >= 12) {
+    showToast("最多保存 12 个班次", "error");
+    return;
+  }
+  const preset = {
+    id: `custom-${makeId()}`,
+    kind: "work",
+    name: "自定义班次",
+    start: "09:00",
+    end: "18:00",
+    tone: "coral",
+    removable: true
+  };
+  shiftPresets.push(preset);
+  saveShiftPresets();
+  renderPresets();
+  renderShiftSettings();
+  requestAnimationFrame(() => {
+    const input = elements.shiftPresetList.querySelector(
+      `[data-preset-field="name"][data-id="${preset.id}"]`
+    );
+    input?.focus();
+    input?.select();
+    input?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+}
+
+function removeShiftPreset(id) {
+  const preset = getShiftPreset(id);
+  if (!preset?.removable) return;
+  if (state.cycle.some((shift) => shift.presetId === id)) {
+    showToast("先从周期中移除使用此班次的天数", "error");
+    return;
+  }
+  shiftPresets = shiftPresets.filter((item) => item.id !== id);
+  saveShiftPresets();
+  renderPresets();
+  renderShiftSettings();
+  showToast("自定义班次已删除");
 }
 
 function renderCycle(options = {}) {
@@ -491,7 +842,11 @@ function renderCycle(options = {}) {
               />
             </label>
           </div>
-          <span class="off-label">全天休息，不占用日历时间</span>
+            <span class="off-label">${
+              restStartForIndex(index)
+                ? `夜班 ${restStartForIndex(index)} 下班，休息 24 小时`
+                : "全天休息，不占用日历时间"
+            }</span>
 
           <button class="remove-button" type="button" data-action="remove" aria-label="删除第 ${index + 1} 天">
             ${icon("trash", 15)}
@@ -501,7 +856,112 @@ function renderCycle(options = {}) {
     })
     .join("");
 
+  renderMobileCycle();
   if (options.animateId) animateNewRow(options.animateId);
+}
+
+function getSelectedShift() {
+  let index = state.cycle.findIndex((shift) => shift.id === selectedShiftId);
+  if (index < 0) {
+    selectedShiftId = state.todayId || state.cycle[0]?.id || null;
+    index = state.cycle.findIndex((shift) => shift.id === selectedShiftId);
+  }
+  if (index < 0) {
+    selectedShiftId = state.cycle[0]?.id || null;
+    index = 0;
+  }
+  return { shift: state.cycle[index], index };
+}
+
+function renderMobileCycle() {
+  const { shift: selected, index: selectedIndex } = getSelectedShift();
+  if (!selected) {
+    elements.mobileCycleStrip.innerHTML = "";
+    elements.mobileShiftPanel.innerHTML = '<p class="mobile-empty">先添加一个班次</p>';
+    return;
+  }
+
+  elements.mobileCycleStrip.innerHTML = state.cycle
+    .map((shift, index) => {
+      const isSelected = shift.id === selected.id;
+      const isToday = shift.id === state.todayId;
+      return `
+        <button
+          class="mobile-cycle-chip tone-${shift.tone}${isSelected ? " is-selected" : ""}${isToday ? " is-today" : ""}"
+          type="button"
+          data-mobile-shift-id="${shift.id}"
+          aria-pressed="${isSelected}"
+          aria-label="第 ${index + 1} 天，${escapeHTML(shift.name)}${isToday ? "，今天起点" : ""}"
+        >
+          <span class="mobile-chip-index">${isToday ? "今" : String(index + 1).padStart(2, "0")}</span>
+          <span class="mobile-chip-copy">
+            <strong data-mobile-chip-name>${escapeHTML(shift.name)}</strong>
+            <small data-mobile-chip-time>${
+              shift.kind === "off"
+                ? restStartForIndex(index)
+                  ? `${restStartForIndex(index)} 起休息 24 小时`
+                  : "全天休息"
+                : shiftTimeLabel(shift)
+            }</small>
+          </span>
+        </button>
+      `;
+    })
+    .join("");
+
+  elements.mobileShiftPanel.innerHTML = `
+    <div class="mobile-editor-heading">
+      <span>
+        <small>第 ${selectedIndex + 1} 天 · 当前选择</small>
+        <strong>${escapeHTML(selected.name)}</strong>
+      </span>
+      <button
+        class="mobile-today-button"
+        type="button"
+        data-mobile-action="today"
+        aria-pressed="${selected.id === state.todayId}"
+      >${selected.id === state.todayId ? "今天起点" : "设为今天"}</button>
+    </div>
+
+    <div class="mobile-editor-fields">
+      <div class="mobile-editor-main">
+        <div class="kind-control" role="group" aria-label="班次类型">
+          <button
+            type="button"
+            data-mobile-action="kind"
+            data-kind="work"
+            aria-pressed="${selected.kind === "work"}"
+          >工作</button>
+          <button
+            type="button"
+            data-mobile-action="kind"
+            data-kind="off"
+            aria-pressed="${selected.kind === "off"}"
+          >休息</button>
+        </div>
+      </div>
+
+      <div class="mobile-editor-side">
+        <div class="mobile-editor-actions">
+          <button type="button" data-mobile-action="left" aria-label="向前移动" title="向前移动" ${selectedIndex === 0 ? "disabled" : ""}>
+            ${icon("arrowLeft", 15)}
+          </button>
+          <button type="button" data-mobile-action="right" aria-label="向后移动" title="向后移动" ${selectedIndex === state.cycle.length - 1 ? "disabled" : ""}>
+            ${icon("arrowRight", 15)}
+          </button>
+          <button class="is-danger" type="button" data-mobile-action="remove" aria-label="删除当前班次" title="删除当前班次">
+            ${icon("trash", 15)}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  requestAnimationFrame(() => {
+    elements.mobileCycleStrip
+      .querySelector(`[data-mobile-shift-id="${selected.id}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  });
 }
 
 function animateNewRow(id) {
@@ -522,6 +982,17 @@ function animateNewRow(id) {
 function syncFieldValues() {
   elements.title.value = state.title;
   elements.includeRest.checked = state.includeRest;
+  syncCoverageControl();
+}
+
+function syncCoverageControl() {
+  const visible = Boolean(currentUser);
+  elements.coverageControl.hidden = !visible;
+  if (visible) {
+    elements.subscriptionMonths.value = String(
+      clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS)
+    );
+  }
 }
 
 function renderMeta() {
@@ -530,8 +1001,11 @@ function renderMeta() {
   elements.cycleLengthLabel.textContent = `${state.cycle.length} 天`;
 
   const today = getTodayShift();
+  const todayIndex = getTodayIndex();
   elements.todayShiftName.textContent = today?.name || "未设置";
-  elements.todayShiftTime.textContent = today ? shiftTimeLabel(today) : "";
+  elements.todayShiftTime.textContent = today
+    ? shiftTimeLabel(today, restStartForIndex(todayIndex))
+    : "";
 }
 
 function renderSequence() {
@@ -570,13 +1044,16 @@ function renderSchedule() {
   for (let offset = 0; offset < 8; offset += 1) {
     const dateValue = addDays(startDate, offset);
     const date = parseISODate(dateValue);
-    const shift = state.cycle[(todayIndex + offset) % state.cycle.length];
+    const cycleIndex = (todayIndex + offset) % state.cycle.length;
+    const shift = state.cycle[cycleIndex];
     rows.push(`
       <div class="schedule-row tone-${shift.tone}">
         <span class="schedule-date">${formatShortDate(date)} ${formatWeekday(date)}</span>
         <span class="schedule-tone" aria-hidden="true"></span>
         <span class="schedule-name">${escapeHTML(shift.name)}${offset === 0 ? " · 今天" : ""}</span>
-        <span class="schedule-time">${escapeHTML(shiftTimeLabel(shift))}</span>
+        <span class="schedule-time">${escapeHTML(
+          shiftTimeLabel(shift, restStartForIndex(cycleIndex))
+        )}</span>
       </div>
     `);
   }
@@ -609,14 +1086,22 @@ function updateActionLabels() {
   elements.saveCalendarLabel.textContent = activeCalendarId ? "保存当前修改" : "保存周期";
 
   if (!currentUser) {
-    elements.primaryActionLabel.textContent = "复制 3 个月订阅链接";
+    elements.primaryActionIcon.innerHTML = icon("link", 18);
+    elements.primaryActionLabel.textContent = currentLinks
+      ? "复制 3 个月临时订阅链接"
+      : "生成并复制 3 个月临时订阅链接";
+    elements.downloadIcsLabel.textContent = `下载 ${GUEST_EXPORT_MONTHS} 个月 .ics`;
     elements.privacyNote.textContent =
-      "游客链接由服务端签名，最多覆盖未来 3 个月。班次信息不包含账户或个人资料。";
+      `推荐下载 .ics，最多覆盖 ${GUEST_EXPORT_MONTHS} 个月。临时订阅链接覆盖 3 个月，7 天后失效并定期清除。`;
   } else {
+    elements.primaryActionIcon.innerHTML = icon("link", 18);
     elements.primaryActionLabel.textContent =
-      activeCalendarId ? "更新并复制 1 年订阅链接" : "保存并复制 1 年订阅链接";
+      activeCalendarId
+        ? `更新并复制 ${months} 个月订阅链接`
+        : `保存并复制 ${months} 个月订阅链接`;
+    elements.downloadIcsLabel.textContent = `下载 ${months} 个月 .ics`;
     elements.privacyNote.textContent =
-      "订阅地址保存在你的周期列表中，固定覆盖未来 12 个月。你可以创建多个独立周期链接。";
+      `订阅地址带服务端签名，覆盖未来 ${months} 个月。修改周期不会改变链接，停用账号后链接失效。`;
   }
 }
 
@@ -693,6 +1178,7 @@ function addShift(preset, options = {}) {
   }
   const shift = makeShift(preset);
   state.cycle.push(shift);
+  selectedShiftId = shift.id;
   renderCycle({ animateId: shift.id });
   updateAllPreview();
   requestAnimationFrame(() => {
@@ -719,6 +1205,9 @@ function removeShift(id) {
     const nextIndex = Math.max(0, Math.min(index - 1, state.cycle.length - 1));
     state.todayId = state.cycle[nextIndex].id;
   }
+  if (selectedShiftId === id) {
+    selectedShiftId = state.cycle[Math.min(index, state.cycle.length - 1)].id;
+  }
   renderCycle();
   updateAllPreview();
 }
@@ -734,6 +1223,7 @@ function setToday(id) {
 function changeKind(row, id, kind) {
   const shift = state.cycle.find((item) => item.id === id);
   if (!shift || shift.kind === kind) return;
+  detachShiftFromPreset(shift);
 
   if (kind === "off") {
     shift.kind = "off";
@@ -753,9 +1243,21 @@ function changeKind(row, id, kind) {
   updateAllPreview();
 }
 
+function moveShiftBy(id, direction) {
+  const index = state.cycle.findIndex((shift) => shift.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= state.cycle.length) return;
+  [state.cycle[index], state.cycle[target]] = [state.cycle[target], state.cycle[index]];
+  selectedShiftId = id;
+  renderCycle();
+  updateAllPreview();
+  navigator.vibrate?.(5);
+}
+
 function changeTone(row, id) {
   const shift = state.cycle.find((item) => item.id === id);
   if (!shift) return;
+  detachShiftFromPreset(shift);
   const currentIndex = TONE_ORDER.indexOf(shift.tone);
   shift.tone = TONE_ORDER[(currentIndex + 1) % TONE_ORDER.length];
   updateTone(row, shift.tone);
@@ -936,7 +1438,6 @@ function applyUserUI() {
   const loggedIn = Boolean(currentUser);
   elements.navCalendars.hidden = !loggedIn;
   elements.navAdmin.hidden = currentUser?.role !== "admin";
-  elements.inlineAuthButton.hidden = loggedIn;
   elements.accountName.textContent = currentUser?.nickname || "登录";
   elements.accountRole.textContent = currentUser
     ? currentUser.role === "admin"
@@ -947,9 +1448,7 @@ function applyUserUI() {
     ? escapeHTML(currentUser.nickname.trim().slice(0, 1).toUpperCase())
     : icon("user", 15);
 
-  elements.accountStripText.textContent = loggedIn
-    ? `${currentUser.nickname} · 订阅覆盖未来 12 个月`
-    : "游客订阅覆盖未来 3 个月";
+  syncCoverageControl();
   renderPreview();
 
   if (!loggedIn && currentView !== "builder") {
@@ -1002,17 +1501,29 @@ function openAccountDialog() {
   elements.accountPanelUsername.textContent = `@${currentUser.username}`;
   elements.accountPanelRole.textContent = currentUser.role === "admin" ? "管理员" : "成员";
   elements.accountPanelRole.dataset.status = "approved";
+  elements.profileForm.elements.username.value = currentUser.username;
+  elements.profileForm.elements.nickname.value = currentUser.nickname;
+  elements.passwordForm.reset();
+  setFormStatus(elements.profileStatus, "");
+  setFormStatus(elements.passwordStatus, "");
   if (!elements.authDialog.open) elements.authDialog.showModal();
 }
 
+function setFormStatus(element, message, isError = false) {
+  element.textContent = message;
+  element.classList.toggle("is-error", isError);
+}
+
 function setAuthStatus(message, isError = false) {
-  elements.authStatus.textContent = message;
-  elements.authStatus.classList.toggle("is-error", isError);
+  setFormStatus(elements.authStatus, message, isError);
 }
 
 function closeAuthDialog() {
   if (elements.authDialog.open) elements.authDialog.close();
   setAuthStatus("");
+  elements.passwordForm.reset();
+  setFormStatus(elements.profileStatus, "");
+  setFormStatus(elements.passwordStatus, "");
 }
 
 async function handleLogin(event) {
@@ -1079,6 +1590,66 @@ async function handleRegister(event) {
   }
 }
 
+async function handleProfileUpdate(event) {
+  event.preventDefault();
+  const form = new FormData(elements.profileForm);
+  elements.profileSubmit.disabled = true;
+  setFormStatus(elements.profileStatus, "正在保存…");
+  try {
+    const data = await api("/api/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        username: form.get("username"),
+        nickname: form.get("nickname")
+      })
+    });
+    currentUser = data.user;
+    applyUserUI();
+    elements.accountPanelAvatar.textContent = currentUser.nickname.trim().slice(0, 1).toUpperCase();
+    elements.accountPanelName.textContent = currentUser.nickname;
+    elements.accountPanelUsername.textContent = `@${currentUser.username}`;
+    elements.profileForm.elements.username.value = currentUser.username;
+    elements.profileForm.elements.nickname.value = currentUser.nickname;
+    setFormStatus(elements.profileStatus, "资料已更新");
+    showToast("资料已更新");
+  } catch (error) {
+    setFormStatus(elements.profileStatus, errorMessage(error), true);
+  } finally {
+    elements.profileSubmit.disabled = false;
+  }
+}
+
+async function handlePasswordChange(event) {
+  event.preventDefault();
+  const form = new FormData(elements.passwordForm);
+  const newPassword = String(form.get("newPassword") || "");
+  const confirmPassword = String(form.get("confirmPassword") || "");
+  if (newPassword !== confirmPassword) {
+    setFormStatus(elements.passwordStatus, "两次输入的新密码不一致", true);
+    elements.passwordForm.elements.confirmPassword.focus();
+    return;
+  }
+
+  elements.passwordSubmit.disabled = true;
+  setFormStatus(elements.passwordStatus, "正在更新…");
+  try {
+    await api("/api/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify({
+        currentPassword: form.get("currentPassword"),
+        newPassword
+      })
+    });
+    elements.passwordForm.reset();
+    setFormStatus(elements.passwordStatus, "密码已更新，其他设备已退出登录");
+    showToast("密码已更新");
+  } catch (error) {
+    setFormStatus(elements.passwordStatus, errorMessage(error), true);
+  } finally {
+    elements.passwordSubmit.disabled = false;
+  }
+}
+
 async function logout() {
   try {
     await api("/api/auth/logout", { method: "POST" });
@@ -1087,6 +1658,10 @@ async function logout() {
   }
   currentUser = null;
   calendars = [];
+  mergedSubscription = null;
+  selectedMergedSubscription = null;
+  selectedCalendarIds.clear();
+  selectedMergedRequestId += 1;
   activeCalendarId = null;
   currentLinks = null;
   applyUserUI();
@@ -1126,7 +1701,7 @@ async function persistCalendar() {
       });
 
   activeCalendarId = data.calendar.id;
-  currentLinks = buildLinks(data.calendar.subscriptionPath, 12);
+  currentLinks = buildLinks(data.calendar.subscriptionPath, coverageMonths());
   elements.linkText.textContent = `${window.location.host}${data.calendar.subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   updateActionLabels();
@@ -1145,8 +1720,9 @@ async function ensureLinks() {
     body: JSON.stringify({ plan: compactPlan() })
   });
   currentLinks = buildLinks(data.path, data.months);
-  elements.linkText.textContent = `${window.location.host}/api/guest.ics · 已签名`;
+  elements.linkText.textContent = currentLinks.ics.replace(/^https?:\/\//, "");
   elements.copyLinkIcon.disabled = false;
+  updateActionLabels();
   return currentLinks;
 }
 
@@ -1171,14 +1747,32 @@ async function copySubscriptionLink() {
   try {
     const links = await ensureLinks();
     await copyText(links.ics);
-    showToast(currentUser ? "1 年订阅链接已复制" : "3 个月订阅链接已复制");
+    showToast(
+      currentUser
+        ? `${links.months} 个月订阅链接已复制`
+        : `${links.months} 个月临时链接已复制，7 天后失效`
+    );
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
 }
 
+async function runPrimaryAction() {
+  await copySubscriptionLink();
+}
+
 async function downloadCalendar() {
   try {
+    if (!currentUser) {
+      if (!updateValidation()) throw new Error(getValidationErrors()[0]);
+      const data = await api("/api/guest-export", {
+        method: "POST",
+        body: JSON.stringify({ plan: compactPlan() })
+      });
+      window.location.href = absoluteUrl(data.path);
+      showToast(`${data.months} 个月临时日历文件已准备`);
+      return;
+    }
     const links = await ensureLinks();
     window.location.href = links.download;
     showToast("正在下载日历文件");
@@ -1220,6 +1814,94 @@ function calendarSequence(plan) {
     .join("");
 }
 
+function renderMergedSubscription() {
+  const selectedCount = selectedCalendarIds.size;
+  const activeSubscription =
+    selectedCount > 0 ? selectedMergedSubscription : mergedSubscription;
+  const visible =
+    Boolean(currentUser) &&
+    calendars.length > 0;
+  elements.mergedSubscription.hidden = !visible;
+  elements.clearMergedSelection.hidden = selectedCount === 0;
+  if (!visible) return;
+
+  elements.mergedCalendarCount.textContent =
+    selectedCount > 0 ? `已选 ${selectedCount} 个` : `全部 ${calendars.length} 个`;
+  elements.mergedSubscriptionDescription.textContent =
+    selectedCount > 0 ? "仅合并勾选的已保存周期" : "自动包含全部已保存周期";
+  elements.mergedSubscriptionActionLabel.textContent =
+    selectedCount > 0 ? "复制所选链接" : "复制全部链接";
+  elements.copyMergedSubscription.disabled = !activeSubscription?.subscriptionPath;
+  elements.mergedSubscriptionLink.textContent = activeSubscription?.subscriptionPath
+    ? `${window.location.host}${activeSubscription.subscriptionPath}`
+    : selectedCount > 0
+      ? "正在生成所选周期链接…"
+      : "";
+}
+
+async function refreshMergedSubscription(options = {}) {
+  if (!currentUser || !calendars.length) {
+    mergedSubscription = null;
+    renderMergedSubscription();
+    return;
+  }
+
+  try {
+    mergedSubscription = await api("/api/merged-subscription");
+    renderMergedSubscription();
+  } catch (error) {
+    mergedSubscription = null;
+    renderMergedSubscription();
+    if (!options.quiet) showToast(errorMessage(error), "error");
+  }
+}
+
+async function refreshSelectedMergedSubscription(options = {}) {
+  const requestId = ++selectedMergedRequestId;
+  if (!currentUser || !selectedCalendarIds.size) {
+    selectedMergedSubscription = null;
+    renderMergedSubscription();
+    return;
+  }
+
+  const ids = [...selectedCalendarIds].sort();
+  selectedMergedSubscription = null;
+  renderMergedSubscription();
+  try {
+    const data = await api(
+      `/api/merged-subscription?ids=${encodeURIComponent(ids.join(","))}`
+    );
+    if (
+      requestId !== selectedMergedRequestId ||
+      ids.join(",") !== [...selectedCalendarIds].sort().join(",")
+    ) {
+      return;
+    }
+    selectedMergedSubscription = data;
+    renderMergedSubscription();
+  } catch (error) {
+    if (requestId !== selectedMergedRequestId) return;
+    selectedMergedSubscription = null;
+    renderMergedSubscription();
+    if (!options.quiet) showToast(errorMessage(error), "error");
+  }
+}
+
+function updateCalendarSelection(id, selected) {
+  if (selected) selectedCalendarIds.add(id);
+  else selectedCalendarIds.delete(id);
+  renderCalendarList();
+  refreshSelectedMergedSubscription();
+}
+
+function clearMergedSelection() {
+  selectedCalendarIds.clear();
+  selectedMergedRequestId += 1;
+  selectedMergedSubscription = null;
+  renderCalendarList();
+  renderMergedSubscription();
+}
+
 function renderCalendarList() {
   if (!calendars.length) {
     elements.calendarList.innerHTML = `
@@ -1234,18 +1916,33 @@ function renderCalendarList() {
   elements.calendarList.innerHTML = calendars
     .map((calendar) => {
       const cycleLength = calendar.plan?.c?.length ?? calendar.plan?.cycle?.length ?? 0;
+      const months = clampSubscriptionMonths(
+        calendar.plan?.d ?? calendar.plan?.durationMonths,
+        DEFAULT_MEMBER_MONTHS
+      );
       const updated = new Date(calendar.updatedAt);
       const updatedCopy = new Intl.DateTimeFormat("zh-CN", {
         month: "numeric",
         day: "numeric"
       }).format(updated);
+      const selected = selectedCalendarIds.has(calendar.id);
       return `
-        <article class="calendar-row" data-id="${calendar.id}">
+        <article class="calendar-row${selected ? " is-selected" : ""}" data-id="${calendar.id}">
+          <label class="calendar-select" title="选择用于合并订阅">
+            <input
+              type="checkbox"
+              data-calendar-select
+              data-id="${calendar.id}"
+              aria-label="选择 ${escapeHTML(calendar.title)} 用于合并订阅"
+              ${selected ? "checked" : ""}
+            />
+            <span class="calendar-select-control" aria-hidden="true">${icon("check", 12)}</span>
+          </label>
           <div class="calendar-row-copy">
             <h3>${escapeHTML(calendar.title)}</h3>
             <div class="calendar-row-meta">
               <span>${cycleLength} 天循环</span>
-              <span>12 个月</span>
+              <span>${months} 个月</span>
               <span>更新于 ${updatedCopy}</span>
               <span class="calendar-sequence" aria-hidden="true">${calendarSequence(calendar.plan)}</span>
             </div>
@@ -1264,13 +1961,24 @@ function renderCalendarList() {
 async function refreshCalendars(options = {}) {
   if (!currentUser) {
     calendars = [];
+    mergedSubscription = null;
+    selectedMergedSubscription = null;
+    selectedCalendarIds.clear();
+    selectedMergedRequestId += 1;
     renderCalendarList();
+    renderMergedSubscription();
     return;
   }
   try {
     const data = await api("/api/calendars");
     calendars = data.calendars || [];
+    const availableIds = new Set(calendars.map((calendar) => calendar.id));
+    for (const id of selectedCalendarIds) {
+      if (!availableIds.has(id)) selectedCalendarIds.delete(id);
+    }
     renderCalendarList();
+    await refreshMergedSubscription(options);
+    if (selectedCalendarIds.size) await refreshSelectedMergedSubscription(options);
   } catch (error) {
     if (!options.quiet) showToast(errorMessage(error), "error");
   }
@@ -1278,9 +1986,12 @@ async function refreshCalendars(options = {}) {
 
 function loadCalendarIntoBuilder(calendar) {
   state = normalizeClientPlan(calendar.plan);
+  ensureCyclePresetAssignments();
   state.title = calendar.title;
+  selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
-  currentLinks = buildLinks(calendar.subscriptionPath, 12);
+  currentLinks = buildLinks(calendar.subscriptionPath, coverageMonths());
+  renderPresets();
   syncFieldValues();
   renderCycle();
   renderPreview();
@@ -1291,6 +2002,7 @@ function loadCalendarIntoBuilder(calendar) {
 
 function startNewCalendar() {
   state = createDefaultState();
+  selectedShiftId = state.todayId;
   activeCalendarId = null;
   currentLinks = null;
   syncFieldValues();
@@ -1307,6 +2019,23 @@ async function copyCalendarLink(calendar) {
   try {
     await copyText(absoluteUrl(calendar.subscriptionPath));
     showToast("订阅链接已复制");
+  } catch {
+    showToast("复制失败，请重试", "error");
+  }
+}
+
+async function copyMergedSubscriptionLink() {
+  const selectedCount = selectedCalendarIds.size;
+  const subscription =
+    selectedCount > 0 ? selectedMergedSubscription : mergedSubscription;
+  if (!subscription?.subscriptionPath) return;
+  try {
+    await copyText(absoluteUrl(subscription.subscriptionPath));
+    showToast(
+      selectedCount > 0
+        ? `${selectedCount} 个所选周期的合并链接已复制`
+        : `${calendars.length} 个周期的合并链接已复制`
+    );
   } catch {
     showToast("复制失败，请重试", "error");
   }
@@ -1349,6 +2078,7 @@ function renderPeople() {
       const isSelf = user.id === currentUser?.id;
       const actions = [];
       if (!isSelf) {
+        actions.push(`<button type="button" data-admin-action="password" data-id="${user.id}">改密</button>`);
         if (user.status === "pending") {
           actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">批准</button>`);
           actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="rejected">拒绝</button>`);
@@ -1449,6 +2179,52 @@ async function updateAdminUser(userId, payload) {
     showToast("成员状态已更新");
   } catch (error) {
     showToast(errorMessage(error), "error");
+  }
+}
+
+function openAdminPasswordDialog(user) {
+  adminPasswordUser = user;
+  elements.adminPasswordTarget.textContent = `${user.nickname} · @${user.username}`;
+  elements.adminPasswordForm.reset();
+  setFormStatus(elements.adminPasswordStatus, "");
+  if (!elements.adminPasswordDialog.open) elements.adminPasswordDialog.showModal();
+}
+
+function closeAdminPasswordDialog() {
+  if (elements.adminPasswordDialog.open) elements.adminPasswordDialog.close();
+  elements.adminPasswordForm.reset();
+  setFormStatus(elements.adminPasswordStatus, "");
+  adminPasswordUser = null;
+}
+
+async function handleAdminPasswordReset(event) {
+  event.preventDefault();
+  if (!adminPasswordUser) return;
+  const form = new FormData(elements.adminPasswordForm);
+  const newPassword = String(form.get("newPassword") || "");
+  const confirmPassword = String(form.get("confirmPassword") || "");
+  if (newPassword !== confirmPassword) {
+    setFormStatus(elements.adminPasswordStatus, "两次输入的新密码不一致", true);
+    elements.adminPasswordForm.elements.confirmPassword.focus();
+    return;
+  }
+
+  const button = elements.adminPasswordForm.querySelector("button[type='submit']");
+  button.disabled = true;
+  setFormStatus(elements.adminPasswordStatus, "正在重置…");
+  try {
+    await api(`/api/admin/users/${adminPasswordUser.id}/password`, {
+      method: "PATCH",
+      body: JSON.stringify({ newPassword })
+    });
+    const nickname = adminPasswordUser.nickname;
+    closeAdminPasswordDialog();
+    await loadAdminData();
+    showToast(`${nickname} 的密码已重置`);
+  } catch (error) {
+    setFormStatus(elements.adminPasswordStatus, errorMessage(error), true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1564,23 +2340,27 @@ function bindEvents() {
     updateAllPreview();
   });
 
-  elements.presetRow.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-preset]");
-    if (button) addShift(PRESETS[button.dataset.preset]);
+  elements.subscriptionMonths.addEventListener("input", () => {
+    if (elements.subscriptionMonths.value === "") return;
+    state.durationMonths = clampSubscriptionMonths(elements.subscriptionMonths.value);
+    updateAllPreview();
   });
 
-  elements.addCustom.addEventListener("click", () => {
-    addShift(
-      {
-        kind: "work",
-        name: "自定义班次",
-        start: "09:00",
-        end: "18:00",
-        tone: "coral"
-      },
-      { focus: !coarsePointerQuery.matches }
-    );
+  elements.subscriptionMonths.addEventListener("change", () => {
+    state.durationMonths = clampSubscriptionMonths(elements.subscriptionMonths.value);
+    syncCoverageControl();
+    updateAllPreview();
   });
+
+  elements.presetRow.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-preset]");
+    const preset = button ? getShiftPreset(button.dataset.preset) : null;
+    if (preset) addShift(preset);
+  });
+
+  for (const button of document.querySelectorAll("[data-shift-settings]")) {
+    button.addEventListener("click", openShiftSettings);
+  }
 
   elements.cycleList.addEventListener("click", (event) => {
     const action = event.target.closest("[data-action]");
@@ -1600,6 +2380,7 @@ function bindEvents() {
     const row = input.closest(".cycle-item");
     const shift = state.cycle.find((item) => item.id === row.dataset.id);
     if (!shift) return;
+    detachShiftFromPreset(shift);
     shift[input.dataset.field] = input.value;
     updateAllPreview();
   });
@@ -1614,8 +2395,29 @@ function bindEvents() {
   window.addEventListener("pointerup", (event) => finishDrag(event, false));
   window.addEventListener("pointercancel", (event) => finishDrag(event, true));
 
-  elements.copyLink.addEventListener("click", copySubscriptionLink);
+  elements.mobileCycleStrip.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-mobile-shift-id]");
+    if (!chip || chip.dataset.mobileShiftId === selectedShiftId) return;
+    selectedShiftId = chip.dataset.mobileShiftId;
+    renderMobileCycle();
+  });
+
+  elements.mobileShiftPanel.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-mobile-action]");
+    if (!action) return;
+    const id = selectedShiftId;
+    if (!id) return;
+    if (action.dataset.mobileAction === "today") setToday(id);
+    if (action.dataset.mobileAction === "kind") changeKind(null, id, action.dataset.kind);
+    if (action.dataset.mobileAction === "left") moveShiftBy(id, -1);
+    if (action.dataset.mobileAction === "right") moveShiftBy(id, 1);
+    if (action.dataset.mobileAction === "remove") removeShift(id);
+  });
+
+  elements.copyLink.addEventListener("click", runPrimaryAction);
   elements.copyLinkIcon.addEventListener("click", copySubscriptionLink);
+  elements.copyMergedSubscription.addEventListener("click", copyMergedSubscriptionLink);
+  elements.clearMergedSelection.addEventListener("click", clearMergedSelection);
   elements.downloadIcs.addEventListener("click", downloadCalendar);
   elements.openCalendar.addEventListener("click", openCalendarApp);
   elements.saveCalendar.addEventListener("click", saveCurrentCalendar);
@@ -1624,7 +2426,6 @@ function bindEvents() {
     if (currentUser) openAccountDialog();
     else openAuthDialog("login");
   });
-  elements.inlineAuthButton.addEventListener("click", () => openAuthDialog("register"));
   elements.authClose.addEventListener("click", closeAuthDialog);
   elements.authDialog.addEventListener("click", (event) => {
     if (event.target === elements.authDialog) closeAuthDialog();
@@ -1634,9 +2435,67 @@ function bindEvents() {
   }
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.registerForm.addEventListener("submit", handleRegister);
+  elements.profileForm.addEventListener("submit", handleProfileUpdate);
+  elements.passwordForm.addEventListener("submit", handlePasswordChange);
   elements.logoutButton.addEventListener("click", logout);
+  elements.adminPasswordClose.addEventListener("click", closeAdminPasswordDialog);
+  elements.adminPasswordDialog.addEventListener("click", (event) => {
+    if (event.target === elements.adminPasswordDialog) closeAdminPasswordDialog();
+  });
+  elements.adminPasswordForm.addEventListener("submit", handleAdminPasswordReset);
+
+  elements.shiftSettingsClose.addEventListener("click", closeShiftSettings);
+  elements.shiftSettingsDone.addEventListener("click", closeShiftSettings);
+  elements.shiftSettingsDialog.addEventListener("click", (event) => {
+    if (event.target === elements.shiftSettingsDialog) closeShiftSettings();
+  });
+  elements.addShiftPreset.addEventListener("click", addCustomShiftPreset);
+  elements.shiftPresetList.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-preset-field]");
+    if (!input || input.dataset.presetField !== "name") return;
+    updateShiftPreset(input.dataset.id, {
+      [input.dataset.presetField]: input.value
+    });
+  });
+  elements.shiftPresetList.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-preset-field]");
+    if (!input) return;
+    const preset = getShiftPreset(input.dataset.id);
+    if (!preset) return;
+    if (input.dataset.presetField === "name") {
+      const name = cleanText(preset.name, 28) || (preset.kind === "off" ? "休息" : "班次");
+      input.value = name;
+      updateShiftPreset(preset.id, { name });
+      return;
+    }
+    const fallback =
+      input.dataset.presetField === "start"
+        ? preset.kind === "off"
+          ? "00:00"
+          : "09:00"
+        : preset.kind === "off"
+          ? "00:00"
+          : "18:00";
+    const value = cleanTime(input.value, fallback);
+    input.value = value;
+    updateShiftPreset(preset.id, { [input.dataset.presetField]: value });
+  });
+  elements.shiftPresetList.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-preset-action]");
+    if (!action) return;
+    if (action.dataset.presetAction === "tone") {
+      updateShiftPreset(action.dataset.id, { tone: action.dataset.tone });
+      renderShiftSettings();
+    }
+    if (action.dataset.presetAction === "remove") removeShiftPreset(action.dataset.id);
+  });
 
   elements.newCalendarButton.addEventListener("click", startNewCalendar);
+  elements.calendarList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-calendar-select]");
+    if (!checkbox) return;
+    updateCalendarSelection(checkbox.dataset.id, checkbox.checked);
+  });
   elements.calendarList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-calendar-action]");
     if (!button) return;
@@ -1658,6 +2517,10 @@ function bindEvents() {
     }
     if (button.dataset.adminAction === "role") {
       updateAdminUser(button.dataset.id, { role: button.dataset.role });
+    }
+    if (button.dataset.adminAction === "password") {
+      const user = adminUsers.find((item) => item.id === button.dataset.id);
+      if (user) openAdminPasswordDialog(user);
     }
   });
   elements.inviteForm.addEventListener("submit", submitInvite);
@@ -1686,8 +2549,10 @@ function bindEvents() {
 
 async function initialize() {
   hydrateStaticIcons();
-  renderPresets();
+  shiftPresets = loadShiftPresets();
   state = loadStoredPlan() ?? createDefaultState();
+  ensureCyclePresetAssignments();
+  renderPresets();
   syncFieldValues();
   renderCycle();
   renderPreview();

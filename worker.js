@@ -1,10 +1,14 @@
 const DEFAULT_TIMEZONE = "Asia/Shanghai";
 const MAX_CYCLE_DAYS = 35;
 const MAX_GUEST_MONTHS = 3;
-const MEMBER_MONTHS = 12;
+const MAX_GUEST_EXPORT_MONTHS = 6;
+const DEFAULT_MEMBER_MONTHS = 12;
+const MAX_MEMBER_MONTHS = 24;
 const MAX_ENCODED_PLAN_LENGTH = 24000;
 const MAX_DECODED_PLAN_LENGTH = 100000;
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+const GUEST_LINK_TTL_SECONDS = 60 * 60 * 24 * 7;
+const MAX_ACTIVE_GUEST_SUBSCRIPTIONS = 10000;
 const MAX_CALENDARS_PER_USER = 50;
 const PASSWORD_ITERATIONS = 210000;
 const SESSION_COOKIE = "sloop_session";
@@ -14,7 +18,13 @@ const TONES = {
   sage: "#86b89a",
   sun: "#e7b85e",
   coral: "#e98e7d",
-  rose: "#dc89ad"
+  rose: "#dc89ad",
+  teal: "#58a99f",
+  lime: "#9ab95f",
+  plum: "#a58bc9",
+  clay: "#c9785f",
+  slate: "#7189a4",
+  berry: "#bb7bb0"
 };
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -114,7 +124,14 @@ function normalizePlan(raw) {
 
   const cycle = sourceCycle.map((source, index) => {
     const item = Array.isArray(source)
-      ? { kind: source[0], name: source[1], start: source[2], end: source[3], tone: source[4] }
+      ? {
+          kind: source[0],
+          name: source[1],
+          start: source[2],
+          end: source[3],
+          tone: source[4],
+          presetId: source[5]
+        }
       : source;
     const kindValue = String(item?.k ?? item?.kind ?? "w");
     const kind = kindValue === "off" || kindValue === "o" ? "off" : "work";
@@ -124,6 +141,7 @@ function normalizePlan(raw) {
     const endTime = cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00");
     const toneValue = String(item?.o ?? item?.tone ?? (kind === "off" ? "sage" : "sky"));
     const tone = Object.hasOwn(TONES, toneValue) ? toneValue : "sky";
+    const presetId = cleanText(item?.p ?? item?.presetId, 80) || null;
 
     if (kind === "work" && startTime === endTime) {
       throw new ApiError(400, "shift_times_match");
@@ -134,16 +152,22 @@ function normalizePlan(raw) {
       name: name || fallbackName,
       start: startTime,
       end: endTime,
-      tone
+      tone,
+      presetId
     };
   });
 
   const todayIndex = Number(raw.i ?? raw.todayIndex ?? 0);
   const timezone = cleanText(raw.z ?? raw.timezone, 64) || DEFAULT_TIMEZONE;
+  const durationValue = Number(raw.d ?? raw.durationMonths ?? DEFAULT_MEMBER_MONTHS);
+  const durationMonths = Number.isFinite(durationValue)
+    ? Math.max(1, Math.min(MAX_MEMBER_MONTHS, Math.round(durationValue)))
+    : DEFAULT_MEMBER_MONTHS;
 
   return {
     title: cleanText(raw.t ?? raw.title, 64) || "轮转班表",
     timezone,
+    durationMonths,
     todayIndex:
       Number.isInteger(todayIndex) && todayIndex >= 0 && todayIndex < cycle.length ? todayIndex : 0,
     includeRest: Boolean(raw.r ?? raw.includeRest),
@@ -204,6 +228,11 @@ async function hashPassword(password, saltBase64) {
     256
   );
   return bytesToBase64(new Uint8Array(bits));
+}
+
+async function passwordMatches(row, password) {
+  const hash = await hashPassword(String(password ?? ""), row.password_salt);
+  return constantTimeEqual(hash, row.password_hash);
 }
 
 async function hmacBase64Url(value, secret) {
@@ -404,6 +433,7 @@ function buildCalendar(planInput, options = {}) {
   const plan = normalizePlan(planInput);
   const now = options.now ?? new Date();
   const months = Math.max(1, Math.min(24, Number(options.months) || MAX_GUEST_MONTHS));
+  const uidNamespace = String(options.uidNamespace ?? "");
   const start = options.startDate ? parseDateParts(options.startDate) : todayDateParts(now, plan.timezone);
   if (!start) throw new ApiError(400, "invalid_start_date");
 
@@ -430,13 +460,15 @@ function buildCalendar(planInput, options = {}) {
 
     const cycleIndex = (plan.todayIndex + dayOffset) % plan.cycle.length;
     const shift = plan.cycle[cycleIndex];
+    const previousShift =
+      plan.cycle[(cycleIndex - 1 + plan.cycle.length) % plan.cycle.length];
 
     if (shift.kind === "off" && !(options.includeRest ?? plan.includeRest)) continue;
 
     const day = date.getUTCDate();
     const month = date.getUTCMonth() + 1;
     const year = date.getUTCFullYear();
-    const uidSeed = `${cycleIndex}|${shift.name}|${shift.start}|${shift.end}|${shift.tone}`;
+    const uidSeed = `${uidNamespace ? `${uidNamespace}|` : ""}${cycleIndex}|${shift.name}|${shift.start}|${shift.end}|${shift.tone}`;
     const uid = `sloop-${formatIcsDate(date)}-${stableHash(uidSeed)}@shift-cycle.ics`;
     const description = `周期第 ${cycleIndex + 1} 天 · ${plan.title}`;
 
@@ -451,9 +483,37 @@ function buildCalendar(planInput, options = {}) {
     lines.push(`X-SLOOP-CYCLE-DAY:${cycleIndex + 1}`);
 
     if (shift.kind === "off") {
-      lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(date)}`);
-      lines.push(`DTEND;VALUE=DATE:${formatIcsDate(addUtcDays(date, 1))}`);
+      const previousOvernight =
+        previousShift.kind === "work" &&
+        timeToMinutes(previousShift.end) <= timeToMinutes(previousShift.start);
+
+      if (previousOvernight) {
+        const [restHour, restMinute] = previousShift.end.split(":").map(Number);
+        const restEnd = addUtcDays(date, 1);
+        const restStartUtc = localDateTimeToUtc(
+          year,
+          month,
+          day,
+          restHour,
+          restMinute,
+          plan.timezone
+        );
+        const restEndUtc = localDateTimeToUtc(
+          restEnd.getUTCFullYear(),
+          restEnd.getUTCMonth() + 1,
+          restEnd.getUTCDate(),
+          restHour,
+          restMinute,
+          plan.timezone
+        );
+        lines.push(`DTSTART:${formatIcsUtc(restStartUtc)}`);
+        lines.push(`DTEND:${formatIcsUtc(restEndUtc)}`);
+      } else {
+        lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(date)}`);
+        lines.push(`DTEND;VALUE=DATE:${formatIcsDate(addUtcDays(date, 1))}`);
+      }
       lines.push("TRANSP:TRANSPARENT");
+      lines.push(`COLOR:${TONES[shift.tone]}`);
     } else {
       const [startHour, startMinute] = shift.start.split(":").map(Number);
       const [endHour, endMinute] = shift.end.split(":").map(Number);
@@ -480,6 +540,54 @@ function buildCalendar(planInput, options = {}) {
 
   lines.push("END:VCALENDAR");
   return lines.map(foldIcsLine).join("\r\n") + "\r\n";
+}
+
+function buildMergedCalendar(calendarRows, options = {}) {
+  if (!Array.isArray(calendarRows)) throw new ApiError(500, "calendar_data_invalid");
+  const now = options.now ?? new Date();
+  const plans = calendarRows.map((row, index) => {
+    try {
+      return {
+        row,
+        index,
+        plan: normalizePlan(JSON.parse(row.plan_json))
+      };
+    } catch {
+      throw new ApiError(500, "calendar_data_invalid");
+    }
+  });
+  const header = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Sloop//Merged Shift Cycle Calendar//ZH-CN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "X-WR-CALNAME:Sloop 合并班表",
+    `X-WR-TIMEZONE:${DEFAULT_TIMEZONE}`,
+    `X-WR-CALDESC:${escapeIcsText(`合并 ${plans.length} 个已保存周期`)}`,
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    "X-PUBLISHED-TTL:PT1H",
+    `X-SLOOP-CALENDAR-COUNT:${plans.length}`
+  ]
+    .map(foldIcsLine)
+    .join("\r\n");
+  const events = plans
+    .map(({ row, index, plan }) => {
+      const calendar = buildCalendar(plan, {
+        now,
+        months: plan.durationMonths,
+        includeRest: plan.includeRest,
+        uidNamespace: row.share_slug || row.id || String(index)
+      });
+      const eventStart = calendar.indexOf("BEGIN:VEVENT");
+      const calendarEnd = calendar.lastIndexOf("END:VCALENDAR");
+      return eventStart >= 0 && calendarEnd > eventStart
+        ? calendar.slice(eventStart, calendarEnd)
+        : "";
+    })
+    .join("");
+
+  return `${header}\r\n${events}END:VCALENDAR\r\n`;
 }
 
 function foldIcsLine(line) {
@@ -725,10 +833,7 @@ async function loginUser(request, env) {
     .first();
 
   if (!row) throw new ApiError(401, "invalid_credentials");
-  const hash = await hashPassword(password, row.password_salt);
-  if (!constantTimeEqual(hash, row.password_hash)) {
-    throw new ApiError(401, "invalid_credentials");
-  }
+  if (!(await passwordMatches(row, password))) throw new ApiError(401, "invalid_credentials");
   if (row.status === "pending") throw new ApiError(403, "account_pending");
   if (row.status === "rejected") throw new ApiError(403, "account_rejected");
   if (row.status === "disabled") throw new ApiError(403, "account_disabled");
@@ -750,6 +855,64 @@ async function logoutUser(request, env) {
   return emptyResponse(204, {
     "Set-Cookie": sessionCookie("", request, 0)
   });
+}
+
+async function updateOwnProfile(request, env) {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const username = normalizeUsername(body.username ?? user.username);
+  const nickname = normalizeNickname(body.nickname ?? user.nickname);
+  const db = requireDatabase(env);
+
+  if (username !== user.username) {
+    const existing = await db
+      .prepare("SELECT id FROM users WHERE username = ? AND id != ? LIMIT 1")
+      .bind(username, user.id)
+      .first();
+    if (existing) throw new ApiError(409, "username_exists");
+  }
+
+  await db
+    .prepare("UPDATE users SET username = ?, nickname = ? WHERE id = ?")
+    .bind(username, nickname, user.id)
+    .run();
+
+  return jsonResponse({
+    user: {
+      ...user,
+      username,
+      nickname
+    }
+  });
+}
+
+async function changeOwnPassword(request, env) {
+  const user = await requireUser(request, env);
+  const body = await readJson(request);
+  const newPassword = normalizePassword(body.newPassword);
+  const db = requireDatabase(env);
+  const row = await db.prepare("SELECT * FROM users WHERE id = ? LIMIT 1").bind(user.id).first();
+  if (!row) throw new ApiError(404, "user_not_found");
+  if (!(await passwordMatches(row, body.currentPassword))) {
+    throw new ApiError(400, "invalid_current_password");
+  }
+
+  const salt = bytesToBase64(crypto.getRandomValues(new Uint8Array(16)));
+  const passwordHash = await hashPassword(newPassword, salt);
+  await db
+    .prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?")
+    .bind(passwordHash, salt, user.id)
+    .run();
+
+  const token = parseCookies(request)[SESSION_COOKIE];
+  if (!token) throw new ApiError(401, "authentication_required");
+  const tokenHash = await sha256Base64(token);
+  await db
+    .prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?")
+    .bind(user.id, tokenHash)
+    .run();
+
+  return emptyResponse();
 }
 
 async function listUsers(request, env) {
@@ -827,6 +990,26 @@ async function updateUser(request, env, userId) {
       approvedAt: status === "approved" ? target.approved_at || now : target.approved_at
     }
   });
+}
+
+async function resetUserPassword(request, env, userId) {
+  const admin = await requireAdmin(request, env);
+  const body = await readJson(request);
+  const newPassword = normalizePassword(body.newPassword);
+  const db = requireDatabase(env);
+  const target = await db.prepare("SELECT id FROM users WHERE id = ? LIMIT 1").bind(userId).first();
+  if (!target) throw new ApiError(404, "user_not_found");
+  if (target.id === admin.id) throw new ApiError(400, "cannot_reset_self");
+
+  const salt = bytesToBase64(crypto.getRandomValues(new Uint8Array(16)));
+  const passwordHash = await hashPassword(newPassword, salt);
+  await db
+    .prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?")
+    .bind(passwordHash, salt, target.id)
+    .run();
+  await db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(target.id).run();
+
+  return emptyResponse();
 }
 
 function randomInviteCode() {
@@ -918,13 +1101,20 @@ async function disableInvite(request, env, inviteId) {
   return emptyResponse();
 }
 
-function serializeCalendar(row) {
+async function memberSubscriptionSignature(slug, secret) {
+  return hmacBase64Url(`member-subscription:${slug}`, secret);
+}
+
+async function serializeCalendar(row, env) {
+  const secret = env.LINK_SIGNING_SECRET;
+  if (!secret) throw new ApiError(503, "signing_secret_missing");
   let plan;
   try {
     plan = JSON.parse(row.plan_json);
   } catch {
     plan = null;
   }
+  const signature = await memberSubscriptionSignature(row.share_slug, secret);
   return {
     id: row.id,
     title: row.title,
@@ -932,7 +1122,7 @@ function serializeCalendar(row) {
     plan,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    subscriptionPath: `/api/ics/${row.share_slug}`
+    subscriptionPath: `/api/ics/${row.share_slug}.${signature}`
   };
 }
 
@@ -942,7 +1132,10 @@ async function listCalendars(request, env) {
     .prepare("SELECT * FROM calendars WHERE user_id = ? ORDER BY updated_at DESC")
     .bind(user.id)
     .all();
-  return jsonResponse({ calendars: (rows.results || []).map(serializeCalendar) });
+  const calendars = await Promise.all(
+    (rows.results || []).map((row) => serializeCalendar(row, env))
+  );
+  return jsonResponse({ calendars });
 }
 
 async function createCalendar(request, env) {
@@ -972,17 +1165,20 @@ async function createCalendar(request, env) {
     .bind(id, user.id, plan.title, JSON.stringify(plan), slug, now, now)
     .run();
 
+  const calendar = await serializeCalendar(
+    {
+      id,
+      title: plan.title,
+      plan_json: JSON.stringify(plan),
+      share_slug: slug,
+      created_at: now,
+      updated_at: now
+    },
+    env
+  );
   return jsonResponse(
     {
-      calendar: {
-        id,
-        title: plan.title,
-        slug,
-        plan,
-        createdAt: now,
-        updatedAt: now,
-        subscriptionPath: `/api/ics/${slug}`
-      }
+      calendar
     },
     201
   );
@@ -1007,12 +1203,18 @@ async function updateCalendar(request, env, calendarId) {
     .bind(plan.title, JSON.stringify(plan), now, calendarId)
     .run();
 
+  const calendar = await serializeCalendar(
+    {
+      ...existing,
+      title: plan.title,
+      plan_json: JSON.stringify(plan),
+      updated_at: now
+    },
+    env
+  );
   return jsonResponse({
     calendar: {
-      ...serializeCalendar(existing),
-      title: plan.title,
-      plan,
-      updatedAt: now
+      ...calendar
     }
   });
 }
@@ -1029,40 +1231,175 @@ async function deleteCalendar(request, env, calendarId) {
 
 async function createGuestLink(request, env) {
   requireSameOrigin(request);
-  const secret = env.LINK_SIGNING_SECRET;
-  if (!secret) throw new ApiError(503, "signing_secret_missing");
   const body = await readJson(request);
-  const plan = normalizePlan(body.plan);
-  const encoded = await encodePlan(plan);
-  const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 400;
-  const signature = await hmacBase64Url(`${encoded}.${expiresAt}`, secret);
+  return createGuestRecord(request, env, normalizePlan(body.plan), MAX_GUEST_MONTHS);
+}
+
+async function createGuestExport(request, env) {
+  requireSameOrigin(request);
+  const body = await readJson(request);
+  return createGuestRecord(
+    request,
+    env,
+    normalizePlan(body.plan),
+    MAX_GUEST_EXPORT_MONTHS,
+    true
+  );
+}
+
+async function createGuestRecord(request, env, plan, months, download = false) {
+  const db = requireDatabase(env);
+  const now = Math.floor(Date.now() / 1000);
+  await cleanupGuestSubscriptions(env, now);
+  const active = await db
+    .prepare("SELECT COUNT(*) AS count FROM guest_subscriptions WHERE expires_at > ?")
+    .bind(now)
+    .first();
+  if (Number(active?.count || 0) >= MAX_ACTIVE_GUEST_SUBSCRIPTIONS) {
+    throw new ApiError(503, "guest_capacity_reached");
+  }
+
+  const token = randomToken(32);
+  const tokenHash = await sha256Base64(token);
+  const expiresAt = now + GUEST_LINK_TTL_SECONDS;
+  await db
+    .prepare(
+      `INSERT INTO guest_subscriptions
+       (id, token_hash, plan_json, months, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      randomToken(16),
+      tokenHash,
+      JSON.stringify(plan),
+      months,
+      new Date(now * 1000).toISOString(),
+      expiresAt
+    )
+    .run();
+
   return jsonResponse({
-    path: `/api/guest.ics?plan=${encoded}&exp=${expiresAt}&sig=${signature}`,
-    months: MAX_GUEST_MONTHS,
+    path: `/api/guest.ics?token=${token}${download ? "&download=1" : ""}`,
+    months,
     expiresAt
   });
 }
 
-async function serveGuestCalendar(request, env) {
+async function cleanupGuestSubscriptions(env, now = Math.floor(Date.now() / 1000)) {
+  return requireDatabase(env)
+    .prepare("DELETE FROM guest_subscriptions WHERE expires_at <= ?")
+    .bind(now)
+    .run();
+}
+
+async function mergedSubscriptionToken(userId, secret) {
+  const signature = await hmacBase64Url(`merged-subscription:${userId}`, secret);
+  return `${userId}.${signature}`;
+}
+
+function normalizeMergedCalendarIds(value, errorStatus = 400) {
+  if (!value) return [];
+  const ids = String(value)
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (
+    ids.length > MAX_CALENDARS_PER_USER ||
+    ids.some((id) => !/^[A-Za-z0-9_-]{16,64}$/.test(id))
+  ) {
+    throw new ApiError(
+      errorStatus,
+      errorStatus === 404 ? "merged_calendar_not_found" : "invalid_calendar_selection"
+    );
+  }
+  return [...new Set(ids)].sort();
+}
+
+async function mergedSelectionSignature(userId, calendarIds, secret) {
+  return hmacBase64Url(
+    `merged-selection:${userId}:${calendarIds.join(",")}`,
+    secret
+  );
+}
+
+async function createMergedSubscription(request, env) {
+  const user = await requireUser(request, env);
   const secret = env.LINK_SIGNING_SECRET;
   if (!secret) throw new ApiError(503, "signing_secret_missing");
+  const db = requireDatabase(env);
   const url = new URL(request.url);
-  const encoded = url.searchParams.get("plan");
-  const expiresAt = Number(url.searchParams.get("exp"));
-  const signature = url.searchParams.get("sig") || "";
-  if (!encoded || !Number.isInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) {
+  const selectedIds = normalizeMergedCalendarIds(url.searchParams.get("ids"));
+  const rows = await db
+    .prepare("SELECT id FROM calendars WHERE user_id = ? ORDER BY created_at, id")
+    .bind(user.id)
+    .all();
+  const availableIds = new Set((rows.results || []).map((row) => row.id));
+  if (selectedIds.some((id) => !availableIds.has(id))) {
+    throw new ApiError(404, "calendar_not_found");
+  }
+
+  const token = await mergedSubscriptionToken(user.id, secret);
+  const selectionSignature = selectedIds.length
+    ? await mergedSelectionSignature(user.id, selectedIds, secret)
+    : "";
+  const query = selectedIds.length
+    ? `?ids=${encodeURIComponent(selectedIds.join(","))}&sig=${selectionSignature}`
+    : "";
+
+  return jsonResponse({
+    subscriptionPath: `/api/ics/merged/${token}${query}`,
+    calendarCount: selectedIds.length || availableIds.size
+  });
+}
+
+async function serveGuestCalendar(request, env) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token") || "";
+  if (!/^[A-Za-z0-9_-]{20,200}$/.test(token)) {
     throw new ApiError(403, "link_expired");
   }
-  const expected = await hmacBase64Url(`${encoded}.${expiresAt}`, secret);
-  if (!constantTimeEqual(signature, expected)) throw new ApiError(403, "invalid_signature");
-  const plan = await decodePlan(encoded);
-  return serveCalendar(plan, MAX_GUEST_MONTHS, request);
+  const tokenHash = await sha256Base64(token);
+  const row = await requireDatabase(env)
+    .prepare(
+      `SELECT plan_json, months
+       FROM guest_subscriptions
+       WHERE token_hash = ? AND expires_at > ?
+       LIMIT 1`
+    )
+    .bind(tokenHash, Math.floor(Date.now() / 1000))
+    .first();
+  if (!row) throw new ApiError(403, "link_expired");
+
+  let plan;
+  try {
+    plan = normalizePlan(JSON.parse(row.plan_json));
+  } catch {
+    throw new ApiError(500, "calendar_data_invalid");
+  }
+  const months = Math.max(1, Math.min(MAX_GUEST_EXPORT_MONTHS, Number(row.months) || 3));
+  return serveCalendar(plan, months, request);
 }
 
 async function serveMemberCalendar(request, env, slug) {
+  const secret = env.LINK_SIGNING_SECRET;
+  if (!secret) throw new ApiError(503, "signing_secret_missing");
+  const separator = slug.lastIndexOf(".");
+  const shareSlug = separator > 0 ? slug.slice(0, separator) : "";
+  const signature = separator > 0 ? slug.slice(separator + 1) : "";
+  const expected = shareSlug ? await memberSubscriptionSignature(shareSlug, secret) : "";
+  if (!shareSlug || !constantTimeEqual(signature, expected)) {
+    throw new ApiError(404, "calendar_not_found");
+  }
+
   const row = await requireDatabase(env)
-    .prepare("SELECT * FROM calendars WHERE share_slug = ? LIMIT 1")
-    .bind(slug)
+    .prepare(
+      `SELECT c.*
+       FROM calendars c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.share_slug = ? AND u.status = 'approved'
+       LIMIT 1`
+    )
+    .bind(shareSlug)
     .first();
   if (!row) throw new ApiError(404, "calendar_not_found");
   let plan;
@@ -1071,17 +1408,60 @@ async function serveMemberCalendar(request, env, slug) {
   } catch {
     throw new ApiError(500, "calendar_data_invalid");
   }
-  return serveCalendar(plan, MEMBER_MONTHS, request);
+  return serveCalendar(plan, plan.durationMonths, request);
 }
 
-function serveCalendar(plan, months, request) {
-  const calendar = buildCalendar(plan, {
-    months,
-    includeRest: plan.includeRest
-  });
+async function serveMergedCalendar(request, env, token) {
+  const secret = env.LINK_SIGNING_SECRET;
+  if (!secret) throw new ApiError(503, "signing_secret_missing");
+  const url = new URL(request.url);
+
+  const separator = token.indexOf(".");
+  const userId = separator > 0 ? token.slice(0, separator) : "";
+  const signature = separator > 0 ? token.slice(separator + 1) : "";
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(userId) || !signature) {
+    throw new ApiError(404, "merged_calendar_not_found");
+  }
+  const expected = await hmacBase64Url(`merged-subscription:${userId}`, secret);
+  if (!constantTimeEqual(signature, expected)) {
+    throw new ApiError(404, "merged_calendar_not_found");
+  }
+  const selectedIds = normalizeMergedCalendarIds(url.searchParams.get("ids"), 404);
+  if (selectedIds.length) {
+    const selectionSignature = url.searchParams.get("sig") || "";
+    const expectedSelectionSignature = await mergedSelectionSignature(
+      userId,
+      selectedIds,
+      secret
+    );
+    if (!constantTimeEqual(selectionSignature, expectedSelectionSignature)) {
+      throw new ApiError(404, "merged_calendar_not_found");
+    }
+  }
+
+  const db = requireDatabase(env);
+  const owner = await db
+    .prepare("SELECT status FROM users WHERE id = ? LIMIT 1")
+    .bind(userId)
+    .first();
+  if (owner?.status !== "approved") throw new ApiError(404, "merged_calendar_not_found");
+
+  const rows = await db
+    .prepare("SELECT * FROM calendars WHERE user_id = ? ORDER BY created_at, id")
+    .bind(userId)
+    .all();
+  const selectedSet = new Set(selectedIds);
+  const selectedRows = selectedIds.length
+    ? (rows.results || []).filter((row) => selectedSet.has(row.id))
+    : rows.results || [];
+  const calendar = buildMergedCalendar(selectedRows);
+  return calendarFileResponse(calendar, "Sloop 合并班表", request);
+}
+
+function calendarFileResponse(calendar, title, request) {
   const url = new URL(request.url);
   const download = url.searchParams.get("download") === "1";
-  const filename = encodeURIComponent(`${plan.title}.ics`).replace(/'/g, "%27");
+  const filename = encodeURIComponent(`${title}.ics`).replace(/'/g, "%27");
 
   return new Response(request.method === "HEAD" ? null : calendar, {
     status: 200,
@@ -1089,10 +1469,20 @@ function serveCalendar(plan, months, request) {
       ...CORS_HEADERS,
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": `${download ? "attachment" : "inline"}; filename="shift-cycle.ics"; filename*=UTF-8''${filename}`,
-      "Cache-Control": "public, max-age=300",
-      "X-Content-Type-Options": "nosniff"
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex, nofollow, noarchive"
     }
   });
+}
+
+function serveCalendar(plan, months, request) {
+  const calendar = buildCalendar(plan, {
+    months,
+    includeRest: plan.includeRest
+  });
+  return calendarFileResponse(calendar, plan.title, request);
 }
 
 async function handleApiRequest(request, env) {
@@ -1114,11 +1504,18 @@ async function handleApiRequest(request, env) {
   if (path === "/api/auth/register" && method === "POST") return registerUser(request, env);
   if (path === "/api/auth/login" && method === "POST") return loginUser(request, env);
   if (path === "/api/auth/logout" && method === "POST") return logoutUser(request, env);
+  if (path === "/api/auth/profile" && method === "PATCH") return updateOwnProfile(request, env);
+  if (path === "/api/auth/password" && method === "PATCH") return changeOwnPassword(request, env);
   if (path === "/api/auth/me" && method === "GET") {
     return jsonResponse({ user: await getSessionUser(request, env) });
   }
 
   if (path === "/api/guest-link" && method === "POST") return createGuestLink(request, env);
+  if (path === "/api/guest-export" && method === "POST") return createGuestExport(request, env);
+
+  if (path === "/api/merged-subscription" && method === "GET") {
+    return createMergedSubscription(request, env);
+  }
 
   if (path === "/api/calendars" && method === "GET") return listCalendars(request, env);
   if (path === "/api/calendars" && method === "POST") return createCalendar(request, env);
@@ -1128,6 +1525,10 @@ async function handleApiRequest(request, env) {
   if (calendarMatch && method === "DELETE") return deleteCalendar(request, env, calendarMatch[1]);
 
   if (path === "/api/admin/users" && method === "GET") return listUsers(request, env);
+  const userPasswordMatch = /^\/api\/admin\/users\/([^/]+)\/password$/.exec(path);
+  if (userPasswordMatch && method === "PATCH") {
+    return resetUserPassword(request, env, userPasswordMatch[1]);
+  }
   const userMatch = /^\/api\/admin\/users\/([^/]+)$/.exec(path);
   if (userMatch && method === "PATCH") return updateUser(request, env, userMatch[1]);
 
@@ -1135,6 +1536,11 @@ async function handleApiRequest(request, env) {
   if (path === "/api/admin/invites" && method === "POST") return createInvite(request, env);
   const inviteMatch = /^\/api\/admin\/invites\/([^/]+)$/.exec(path);
   if (inviteMatch && method === "DELETE") return disableInvite(request, env, inviteMatch[1]);
+
+  const mergedCalendarMatch = /^\/api\/ics\/merged\/([^/]+)$/.exec(path);
+  if (mergedCalendarMatch && (method === "GET" || method === "HEAD")) {
+    return serveMergedCalendar(request, env, mergedCalendarMatch[1]);
+  }
 
   const memberCalendarMatch = /^\/api\/ics\/([^/]+)$/.exec(path);
   if (memberCalendarMatch && (method === "GET" || method === "HEAD")) {
@@ -1158,6 +1564,7 @@ function apiErrorResponse(error) {
 
 export {
   buildCalendar,
+  buildMergedCalendar,
   decodePlan,
   encodePlan,
   escapeIcsText,
@@ -1200,5 +1607,13 @@ export default {
 
     if (env?.ASSETS) return env.ASSETS.fetch(request);
     return new Response("Not found", { status: 404 });
+  },
+
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(
+      cleanupGuestSubscriptions(env).catch((error) => {
+        console.error("guest_subscription_cleanup_failed", error);
+      })
+    );
   }
 };

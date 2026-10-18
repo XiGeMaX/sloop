@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Sloop app icon</title>
+  <desc id="desc">A maskable Sloop icon with the mark held inside the platform-safe area.</desc>
+  <rect width="64" height="64" fill="#181B17"/>
+  <g transform="translate(10.24 10.24) scale(.68)">
+    <path
+      d="M39 14H30A10 10 0 0 0 30 34H38"
+      fill="none"
+      stroke="#C8F169"
+      stroke-width="6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M38 34A10 10 0 0 1 38 54H19"
+      fill="none"
+      stroke="#5F96F4"
+      stroke-width="6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

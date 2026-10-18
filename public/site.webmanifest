@@ -1,0 +1,31 @@
+{
+  "name": "Sloop · 轮转班表",
+  "short_name": "Sloop",
+  "description": "自由组合周期班次，生成可订阅的 ICS 日历链接。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#EFF1EB",
+  "theme_color": "#181B17",
+  "icons": [
+    {
+      "src": "/assets/brand/sloop-app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/brand/sloop-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/brand/sloop-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
