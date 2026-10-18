@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eff1eb" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141612" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="自由组合周期班次，生成可订阅的 ICS 日历链接。"
+    />
+    <title>Sloop · 轮转班表</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Sloop 首页" data-nav="builder">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span>
+          <span></span>
+        </span>
+        <span class="brand-name">Sloop</span>
+      </a>
+
+      <nav class="top-actions" aria-label="主导航">
+        <button class="nav-button is-active" type="button" data-view="builder" title="班表">
+          <span data-icon="calendar" aria-hidden="true"></span>
+          <span class="nav-label">班表</span>
+        </button>
+        <button class="nav-button" id="navCalendars" type="button" data-view="calendars" title="我的周期" hidden>
+          <span data-icon="layers" aria-hidden="true"></span>
+          <span class="nav-label">我的周期</span>
+        </button>
+        <button class="nav-button" id="navAdmin" type="button" data-view="admin" title="人员管理" hidden>
+          <span data-icon="users" aria-hidden="true"></span>
+          <span class="nav-label">人员管理</span>
+        </button>
+        <button class="account-button" id="authButton" type="button" title="账户">
+          <span class="account-avatar" id="accountAvatar" data-icon="user" aria-hidden="true"></span>
+          <span class="account-copy">
+            <strong id="accountName">登录</strong>
+            <small id="accountRole">游客</small>
+          </span>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="app-frame" id="builderView" aria-labelledby="page-title">
+        <section class="editor" aria-labelledby="page-title">
+          <header class="editor-heading">
+            <div>
+              <p class="eyebrow">周期班表 / ICS</p>
+              <h1 id="page-title">轮转班次</h1>
+            </div>
+            <label class="title-field">
+              <span>日历名称</span>
+              <input id="calendarTitle" type="text" maxlength="64" autocomplete="off" />
+            </label>
+          </header>
+
+          <div class="account-strip" id="accountStrip">
+            <span class="account-strip-icon" data-icon="link" aria-hidden="true"></span>
+            <span id="accountStripText">游客订阅覆盖未来 3 个月</span>
+            <button type="button" id="inlineAuthButton">登录或注册</button>
+          </div>
+
+          <section class="builder" aria-labelledby="cycle-heading">
+            <div class="section-heading">
+              <div>
+                <p class="section-index">01</p>
+                <h2 id="cycle-heading">周期组合</h2>
+              </div>
+              <p class="section-meta" id="cycleMeta">0 天循环</p>
+            </div>
+
+            <div class="today-summary">
+              <span class="today-summary-label">今天</span>
+              <span class="today-summary-name" id="todayShiftName">白班</span>
+              <span class="today-summary-time" id="todayShiftTime">08:00–20:00</span>
+            </div>
+
+            <div class="preset-row" id="presetRow" aria-label="添加班次"></div>
+
+            <div class="cycle-list" id="cycleList"></div>
+
+            <div class="builder-footer">
+              <button class="add-custom" id="addCustom" type="button">
+                <span data-icon="plus" aria-hidden="true"></span>
+                <span>自定义班次</span>
+              </button>
+
+              <label class="switch-row">
+                <span>
+                  <strong>休息日写入日历</strong>
+                  <small>以全天透明事件显示</small>
+                </span>
+                <input id="includeRest" type="checkbox" />
+                <span class="switch" aria-hidden="true"></span>
+              </label>
+            </div>
+          </section>
+        </section>
+
+        <aside class="inspector" aria-labelledby="preview-heading">
+          <details class="preview-disclosure" id="previewDetails">
+            <summary>
+              <span class="summary-copy">
+                <span class="inspector-kicker">
+                  <span class="status-light" aria-hidden="true"></span>
+                  <span>Live calendar</span>
+                </span>
+                <span class="summary-title-row">
+                  <h2 id="preview-heading">轮转预览</h2>
+                  <span class="summary-coverage" id="coverageBadge">3 个月</span>
+                </span>
+                <span class="range-copy" id="rangeCopy">从今天开始</span>
+              </span>
+              <span class="summary-chevron" data-icon="chevron" aria-hidden="true"></span>
+            </summary>
+
+            <div class="preview-content">
+              <section class="cycle-map" aria-labelledby="map-heading">
+                <div class="inspector-section-heading">
+                  <h3 id="map-heading">循环序列</h3>
+                  <span id="cycleLengthLabel">0 天</span>
+                </div>
+                <div class="sequence-track" id="sequenceTrack"></div>
+              </section>
+
+              <section class="schedule-preview" aria-labelledby="schedule-heading">
+                <div class="inspector-section-heading">
+                  <h3 id="schedule-heading">接下来 8 天</h3>
+                  <span id="eventEstimate">0 个事件</span>
+                </div>
+                <div class="schedule-list" id="scheduleList"></div>
+              </section>
+            </div>
+          </details>
+
+          <section class="export-panel" aria-labelledby="export-heading">
+            <div class="export-heading-row">
+              <h3 id="export-heading">订阅链接</h3>
+              <span class="validity" id="validityBadge">
+                <span data-icon="check" aria-hidden="true"></span>
+                <span>准备就绪</span>
+              </span>
+            </div>
+
+            <div class="link-preview" id="linkPreview">
+              <span class="link-icon" data-icon="link" aria-hidden="true"></span>
+              <span class="link-text" id="linkText">生成后显示日历链接</span>
+              <button class="mini-copy" id="copyLinkIcon" type="button" aria-label="复制订阅链接" disabled>
+                <span data-icon="copy" aria-hidden="true"></span>
+              </button>
+            </div>
+
+            <button class="primary-action" id="copyLink" type="button">
+              <span data-icon="link" aria-hidden="true"></span>
+              <span id="primaryActionLabel">复制 3 个月订阅链接</span>
+            </button>
+
+            <div class="secondary-actions">
+              <button id="saveCalendar" type="button" hidden>
+                <span data-icon="save" aria-hidden="true"></span>
+                <span id="saveCalendarLabel">保存周期</span>
+              </button>
+              <button id="downloadIcs" type="button">
+                <span data-icon="download" aria-hidden="true"></span>
+                <span>下载 .ics</span>
+              </button>
+              <button id="openCalendar" type="button">
+                <span data-icon="calendarPlus" aria-hidden="true"></span>
+                <span>打开日历</span>
+              </button>
+            </div>
+
+            <p class="privacy-note" id="privacyNote">
+              游客链接由服务端签名，最多覆盖未来 3 个月。班次信息不包含账户或个人资料。
+            </p>
+          </section>
+        </aside>
+      </section>
+
+      <section class="page-view" id="calendarsView" aria-labelledby="calendarsTitle" hidden>
+        <header class="view-heading">
+          <div>
+            <p class="eyebrow">已保存周期</p>
+            <h1 id="calendarsTitle">我的周期</h1>
+          </div>
+          <button class="view-primary" id="newCalendarButton" type="button">
+            <span data-icon="plus" aria-hidden="true"></span>
+            <span>新建周期</span>
+          </button>
+        </header>
+        <div class="calendar-list" id="calendarList"></div>
+      </section>
+
+      <section class="page-view admin-view" id="adminView" aria-labelledby="adminTitle" hidden>
+        <header class="view-heading">
+          <div>
+            <p class="eyebrow">管理员</p>
+            <h1 id="adminTitle">人员管理</h1>
+          </div>
+          <span class="admin-count" id="adminCount">0 位成员</span>
+        </header>
+
+        <div class="admin-tabs" role="tablist" aria-label="管理项目">
+          <button class="is-active" type="button" data-admin-tab="people" role="tab" aria-selected="true">
+            <span data-icon="users" aria-hidden="true"></span>
+            <span>人员</span>
+          </button>
+          <button type="button" data-admin-tab="invites" role="tab" aria-selected="false">
+            <span data-icon="ticket" aria-hidden="true"></span>
+            <span>邀请码</span>
+          </button>
+        </div>
+
+        <section class="admin-panel" id="peoplePanel">
+          <div class="admin-panel-heading">
+            <h2>成员与审批</h2>
+            <span id="pendingCount">0 个待审批</span>
+          </div>
+          <div class="people-list" id="peopleList"></div>
+        </section>
+
+        <section class="admin-panel" id="invitesPanel" hidden>
+          <div class="invite-layout">
+            <form class="invite-form" id="inviteForm">
+              <div class="form-heading">
+                <h2>生成邀请码</h2>
+                <span>可留空自动生成</span>
+              </div>
+              <label>
+                <span>邀请码</span>
+                <input
+                  id="inviteCode"
+                  type="text"
+                  maxlength="32"
+                  autocapitalize="characters"
+                  autocomplete="off"
+                  placeholder="例如 SLOOP-2026"
+                />
+              </label>
+              <div class="form-row">
+                <label>
+                  <span>可用次数</span>
+                  <input id="inviteMaxUses" type="number" min="1" max="100" value="1" inputmode="numeric" />
+                </label>
+                <label>
+                  <span>有效期</span>
+                  <input id="inviteExpiry" type="date" />
+                </label>
+              </div>
+              <button class="view-primary" type="submit">
+                <span data-icon="ticket" aria-hidden="true"></span>
+                <span>生成邀请码</span>
+              </button>
+            </form>
+
+            <div class="invite-list-wrap">
+              <div class="admin-panel-heading">
+                <h2>邀请码</h2>
+                <span id="inviteCount">0 个</span>
+              </div>
+              <div class="invite-list" id="inviteList"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button class="dialog-close" id="authClose" type="button" aria-label="关闭">
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <h2 id="authTitle">账户</h2>
+
+      <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+        <button class="is-active" type="button" data-auth-tab="login" role="tab" aria-selected="true">登录</button>
+        <button type="button" data-auth-tab="register" role="tab" aria-selected="false">注册</button>
+      </div>
+
+      <div class="account-panel" id="accountPanel" hidden>
+        <div class="account-panel-identity">
+          <span class="account-panel-avatar" id="accountPanelAvatar"></span>
+          <span>
+            <strong id="accountPanelName"></strong>
+            <small id="accountPanelUsername"></small>
+          </span>
+        </div>
+        <span class="status-pill" id="accountPanelRole"></span>
+        <button class="view-primary" id="logoutButton" type="button">退出登录</button>
+      </div>
+
+      <form class="auth-form" id="loginForm">
+        <label>
+          <span>用户名</span>
+          <input
+            name="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            minlength="3"
+            maxlength="24"
+            required
+          />
+        </label>
+        <label>
+          <span>密码</span>
+          <input name="password" type="password" autocomplete="current-password" minlength="8" required />
+        </label>
+        <button class="view-primary" type="submit">登录</button>
+      </form>
+
+      <form class="auth-form" id="registerForm" hidden>
+        <label>
+          <span>用户名</span>
+          <input
+            name="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            minlength="3"
+            maxlength="24"
+            required
+          />
+        </label>
+        <label>
+          <span>昵称</span>
+          <input name="nickname" type="text" autocomplete="nickname" maxlength="30" required />
+        </label>
+        <label>
+          <span>密码</span>
+          <input name="password" type="password" autocomplete="new-password" minlength="8" required />
+        </label>
+        <label>
+          <span>邀请码</span>
+          <input
+            name="inviteCode"
+            type="text"
+            autocomplete="off"
+            autocapitalize="characters"
+            maxlength="32"
+            placeholder="选填"
+          />
+        </label>
+        <button class="view-primary" type="submit">提交注册</button>
+        <p class="form-note" id="registerNote">邀请码注册直接通过；其他注册申请需要管理员审批。</p>
+      </form>
+
+      <p class="auth-status" id="authStatus" aria-live="polite"></p>
+    </dialog>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+    <noscript>
+      <p class="no-script">Sloop 需要 JavaScript 才能组合班次并生成日历链接。</p>
+    </noscript>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
