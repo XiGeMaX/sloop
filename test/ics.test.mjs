@@ -32,58 +32,6 @@ function encodeJson(value) {
   return `j${Buffer.from(JSON.stringify(value)).toString("base64url")}`;
 }
 
-function createGuestDb() {
-  const records = new Map();
-  return {
-    records,
-    prepare(sql) {
-      let values = [];
-      const statement = {
-        bind(...nextValues) {
-          values = nextValues;
-          return statement;
-        },
-        async run() {
-          if (/^\s*DELETE FROM guest_subscriptions/i.test(sql)) {
-            let changes = 0;
-            for (const [key, record] of records) {
-              if (record.expires_at <= values[0]) {
-                records.delete(key);
-                changes += 1;
-              }
-            }
-            return { meta: { changes } };
-          }
-          if (/^\s*INSERT INTO guest_subscriptions/i.test(sql)) {
-            records.set(values[1], {
-              plan_json: values[2],
-              months: values[3],
-              created_at: values[4],
-              expires_at: values[5]
-            });
-            return { meta: { changes: 1 } };
-          }
-          return { meta: { changes: 0 } };
-        },
-        async first() {
-          if (/COUNT\(\*\).*guest_subscriptions/is.test(sql)) {
-            const active = [...records.values()].filter(
-              (record) => record.expires_at > values[0]
-            ).length;
-            return { count: active };
-          }
-          if (/SELECT plan_json, months/i.test(sql)) {
-            const record = records.get(values[0]);
-            return record && record.expires_at > values[1] ? record : null;
-          }
-          return null;
-        }
-      };
-      return statement;
-    }
-  };
-}
-
 function sessionHash(token) {
   return createHash("sha256").update(token).digest("base64");
 }
@@ -275,17 +223,6 @@ function createBackupFixture() {
       }
     ]
   ]);
-  const guestSubscriptions = new Map([
-    [
-      "guest-1",
-      {
-        plan_json: JSON.stringify(normalizePlan(samplePlan)),
-        months: 3,
-        created_at: "2026-01-07T00:00:00.000Z",
-        expires_at: 1999999999
-      }
-    ]
-  ]);
   const shiftLibraries = new Map([
     [
       "member-1",
@@ -312,7 +249,6 @@ function createBackupFixture() {
     sessions: auth.sessions,
     invites,
     calendars,
-    guestSubscriptions,
     shiftLibraries,
     prepare(sql) {
       let values = [];
@@ -322,9 +258,7 @@ function createBackupFixture() {
           return statement;
         },
         async run() {
-          if (/DELETE FROM guest_subscriptions/i.test(sql)) {
-            guestSubscriptions.clear();
-          } else if (/DELETE FROM sessions/i.test(sql)) {
+          if (/DELETE FROM sessions/i.test(sql)) {
             auth.sessions.clear();
           } else if (/DELETE FROM calendars/i.test(sql)) {
             calendars.clear();
@@ -404,24 +338,7 @@ function createBackupFixture() {
       return [];
     }
   };
-  return { ...auth, db, invites, calendars, guestSubscriptions, shiftLibraries };
-}
-
-async function createTestGuestPath(endpoint = "/api/guest-link") {
-  const db = createGuestDb();
-  const response = await worker.fetch(
-    new Request(`https://example.com${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://example.com"
-      },
-      body: JSON.stringify({ plan: samplePlan })
-    }),
-    { DB: db }
-  );
-  assert.equal(response.status, 200);
-  return { ...(await response.json()), db };
+  return { ...auth, db, invites, calendars, shiftLibraries };
 }
 
 test("normalizes compact plans and keeps the selected today shift", () => {
@@ -644,7 +561,7 @@ test("lets an admin reset a member password and revoke all target sessions", asy
   );
 });
 
-test("exports a complete admin backup without sessions or guest subscriptions", async () => {
+test("exports a complete admin backup without sessions", async () => {
   const { db, users } = createBackupFixture();
   const forbidden = await worker.fetch(
     authRequest("/api/admin/backup", "member-token", null, "GET"),
@@ -672,7 +589,6 @@ test("exports a complete admin backup without sessions or guest subscriptions", 
   assert.equal(snapshot.data.calendars[0].plan.cycle.length, 3);
   assert.equal(snapshot.data.shiftLibraries[0].presets[0].id, "day");
   assert.equal("sessions" in snapshot.data, false);
-  assert.equal("guestSubscriptions" in snapshot.data, false);
 });
 
 test("replaces all data from an admin backup and revokes every session", async () => {
@@ -682,7 +598,6 @@ test("replaces all data from an admin backup and revokes every session", async (
     sessions,
     invites,
     calendars,
-    guestSubscriptions,
     shiftLibraries
   } = createBackupFixture();
   const exportResponse = await worker.fetch(
@@ -704,7 +619,6 @@ test("replaces all data from an admin backup and revokes every session", async (
   });
   assert.equal(users.get("member-1").nickname, "导入成员");
   assert.equal(sessions.size, 0);
-  assert.equal(guestSubscriptions.size, 0);
   assert.equal(invites.size, 1);
   assert.equal(calendars.size, 1);
   assert.equal(shiftLibraries.size, 1);
@@ -827,10 +741,10 @@ test("serves only explicitly signed calendars from a selected merge", async () =
   const userId = "visual-user-123456";
   const selectedIds = ["calendar-a0000000", "calendar-b0000000"];
   const ownerSignature = createHmac("sha256", "test-signing-secret")
-    .update(`merged-subscription:${userId}`)
+    .update(`merged-subscription:v2:${userId}`)
     .digest("base64url");
   const selectionSignature = createHmac("sha256", "test-signing-secret")
-    .update(`merged-selection:${userId}:${selectedIds.join(",")}`)
+    .update(`merged-selection:v2:${userId}:${selectedIds.join(",")}`)
     .digest("base64url");
   const rows = [
     {
@@ -890,7 +804,7 @@ test("serves only explicitly signed calendars from a selected merge", async () =
 test("requires a signed capability token for member subscriptions", async () => {
   const shareSlug = "member-share-token";
   const signature = createHmac("sha256", "test-signing-secret")
-    .update(`member-subscription:${shareSlug}`)
+    .update(`member-subscription:v2:${shareSlug}`)
     .digest("base64url");
   const row = {
     id: "calendar-row",
@@ -923,6 +837,16 @@ test("requires a signed capability token for member subscriptions", async () => 
   );
   assert.equal(unsignedResponse.status, 404);
   assert.deepEqual(await unsignedResponse.json(), { error: "calendar_not_found" });
+
+  const legacySignature = createHmac("sha256", "test-signing-secret")
+    .update(`member-subscription:${shareSlug}`)
+    .digest("base64url");
+  const legacyResponse = await worker.fetch(
+    new Request(`https://example.com/api/ics/${shareSlug}.${legacySignature}`),
+    { DB: db, LINK_SIGNING_SECRET: "test-signing-secret" }
+  );
+  assert.equal(legacyResponse.status, 404);
+  assert.deepEqual(await legacyResponse.json(), { error: "calendar_not_found" });
 });
 
 test("decodes deflated share data", async () => {
@@ -933,34 +857,27 @@ test("decodes deflated share data", async () => {
   assert.equal(plan.todayIndex, 1);
 });
 
-test("creates a temporary guest subscription that serves exactly three months", async () => {
-  const { path, db, expiresAt } = await createTestGuestPath();
-  assert.match(path, /^\/api\/guest\.ics\?token=/);
-  assert.ok(expiresAt > Math.floor(Date.now() / 1000));
+test("permanently disables guest access and every legacy public guest link", async () => {
+  for (const endpoint of ["/api/guest-link", "/api/guest-export"]) {
+    const response = await worker.fetch(
+      new Request(`https://example.com${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://example.com"
+        },
+        body: JSON.stringify({ plan: samplePlan })
+      })
+    );
+    assert.equal(response.status, 410);
+    assert.deepEqual(await response.json(), { error: "guest_access_disabled" });
+  }
 
-  const response = await worker.fetch(
-    new Request(`https://example.com${path}`, {
-      headers: { Origin: "https://example.com" }
-    }),
-    { DB: db }
+  const legacyLink = await worker.fetch(
+    new Request("https://example.com/api/guest.ics?token=legacy-public-subscription")
   );
-  const body = await response.text();
-
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type"), /^text\/calendar/);
-  assert.match(body, /X-WR-CALDESC:.*3 个月/);
-  assert.match(body, /BEGIN:VCALENDAR/);
-  assert.match(body, /END:VCALENDAR/);
-});
-
-test("allows guest ICS exports to cover six months", async () => {
-  const { path, db, months } = await createTestGuestPath("/api/guest-export");
-  assert.equal(months, 6);
-  assert.match(path, /download=1/);
-
-  const response = await worker.fetch(new Request(`https://example.com${path}`), { DB: db });
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /X-WR-CALDESC:.*6 个月/);
+  assert.equal(legacyLink.status, 410);
+  assert.deepEqual(await legacyLink.json(), { error: "guest_access_disabled" });
 });
 
 test("rejects equal start and end times", async () => {
@@ -968,41 +885,7 @@ test("rejects equal start and end times", async () => {
     ...samplePlan,
     c: [["w", "错误班次", "09:00", "09:00", "sky", "", 0]]
   };
-  const response = await worker.fetch(
-    new Request("https://example.com/api/guest-link", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://example.com"
-      },
-      body: JSON.stringify({ plan: invalid })
-    }),
-    { LINK_SIGNING_SECRET: "test-signing-secret" }
-  );
-  assert.equal(response.status, 400);
-  assert.deepEqual(await response.json(), { error: "shift_times_match" });
-});
-
-test("rejects an invalid guest token", async () => {
-  const { path, db } = await createTestGuestPath();
-  const invalidUrl = new URL(path, "https://example.com");
-  invalidUrl.searchParams.set("token", "x");
-  const response = await worker.fetch(
-    new Request(invalidUrl),
-    { DB: db }
-  );
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { error: "link_expired" });
-});
-
-test("scheduled cleanup deletes expired guest subscriptions", async () => {
-  const { db } = await createTestGuestPath();
-  const [record] = db.records.values();
-  record.expires_at = Math.floor(Date.now() / 1000) - 1;
-  let cleanup;
-  await worker.scheduled({}, { DB: db }, { waitUntil(task) { cleanup = task; } });
-  await cleanup;
-  assert.equal(db.records.size, 0);
+  assert.throws(() => normalizePlan(invalid), /shift_times_match/);
 });
 
 test("escapes ICS text and folds long UTF-8 lines safely", () => {

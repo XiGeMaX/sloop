@@ -30,9 +30,9 @@ import {
 
 const STORAGE_KEY = "sloop.plan.v2";
 const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
-const GUEST_SHIFT_PRESETS_STORAGE_KEY = SHIFT_PRESETS_STORAGE_KEY;
+const DEFAULT_SHIFT_PRESETS_STORAGE_KEY = SHIFT_PRESETS_STORAGE_KEY;
 const USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX = "sloop.shift-presets.user.";
-const GUEST_EXPORT_MONTHS = 6;
+const THEME_STORAGE_KEY = "sloop.theme.v1";
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
 const MAX_SHIFT_PRESETS = 12;
@@ -130,10 +130,26 @@ const ICON_PATHS = {
   eyeOff: '<path d="m3 3 18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 8 9 8a17 17 0 0 1-2.1 3.2"/><path d="M6.1 6.1C3.5 7.8 2.1 12 2.1 12s3.5 8 9.9 8a10 10 0 0 0 4.4-1"/>',
   upload: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
-  languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>'
+  languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
 };
 
 const elements = {
+  welcomeView: document.querySelector("#welcomeView"),
+  appHeader: document.querySelector("#appHeader"),
+  appMain: document.querySelector("#appMain"),
+  welcomeLoginForm: document.querySelector("#welcomeLoginForm"),
+  welcomeRegisterForm: document.querySelector("#welcomeRegisterForm"),
+  welcomeLoginSubmit: document.querySelector("#welcomeLoginSubmit"),
+  welcomeRegisterSubmit: document.querySelector("#welcomeRegisterSubmit"),
+  welcomeAuthTitle: document.querySelector("#welcomeAuthTitle"),
+  welcomeAuthDescription: document.querySelector("#welcomeAuthDescription"),
+  welcomeAuthStatus: document.querySelector("#welcomeAuthStatus"),
+  welcomeTabs: document.querySelector(".welcome-tabs"),
+  welcomeLanguageButton: document.querySelector("#welcomeLanguageButton"),
+  welcomeLanguageLabel: document.querySelector("#welcomeLanguageLabel"),
+  welcomeThemeButton: document.querySelector("#welcomeThemeButton"),
+  welcomeThemeIcon: document.querySelector("#welcomeThemeIcon"),
   builderView: document.querySelector("#builderView"),
   calendarsView: document.querySelector("#calendarsView"),
   adminView: document.querySelector("#adminView"),
@@ -175,6 +191,8 @@ const elements = {
   accountRole: document.querySelector("#accountRole"),
   languageButton: document.querySelector("#languageButton"),
   languageLabel: document.querySelector("#languageLabel"),
+  themeButton: document.querySelector("#themeButton"),
+  themeIcon: document.querySelector("#themeIcon"),
   calendarList: document.querySelector("#calendarList"),
   newCalendarButton: document.querySelector("#newCalendarButton"),
   importCycleButton: document.querySelector("#importCycleButton"),
@@ -266,10 +284,11 @@ const elements = {
 
 const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-let activeShiftPresetStorageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY;
+let activeShiftPresetStorageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
 let shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
 let state = createDefaultState();
 let currentUser = null;
+let authGateReady = false;
 let shiftLibrarySyncTimer = 0;
 let shiftLibraryRevision = 0;
 let currentView = "builder";
@@ -360,14 +379,14 @@ function readStoredShiftPresets(storageKey) {
   }
 }
 
-function loadShiftPresets(storageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY) {
+function loadShiftPresets(storageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY) {
   return readStoredShiftPresets(storageKey) ?? cloneDefaultPresets();
 }
 
 function userShiftPresetsStorageKey(user = currentUser) {
   return user?.id
     ? `${USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX}${user.id}`
-    : GUEST_SHIFT_PRESETS_STORAGE_KEY;
+    : DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
 }
 
 function saveShiftPresets(options = {}) {
@@ -777,9 +796,7 @@ function formatDate(value) {
 }
 
 function coverageMonths() {
-  return currentUser
-    ? clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS)
-    : GUEST_EXPORT_MONTHS;
+  return clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS);
 }
 
 function clampSubscriptionMonths(value, fallback = DEFAULT_MEMBER_MONTHS) {
@@ -1458,25 +1475,12 @@ function updateActionLabels() {
   elements.coverageBadge.textContent = monthsLabel;
   elements.saveCalendar.hidden = !currentUser;
   elements.saveCalendarLabel.textContent = activeCalendarId ? t("export.saveChanges") : t("export.save");
-
-  if (!currentUser) {
-    elements.primaryActionIcon.innerHTML = icon("link", 18);
-    elements.primaryActionLabel.textContent = currentLinks
-      ? t("export.guestCopy")
-      : t("export.guestGenerate");
-    elements.downloadIcsLabel.textContent = t("export.download", {
-      months: plural("units.months", GUEST_EXPORT_MONTHS)
-    });
-    elements.privacyNote.textContent = t("export.guestPrivacy");
-  } else {
-    elements.primaryActionIcon.innerHTML = icon("link", 18);
-    elements.primaryActionLabel.textContent =
-      activeCalendarId
-        ? t("export.memberUpdate", { months: monthsLabel })
-        : t("export.memberSave", { months: monthsLabel });
-    elements.downloadIcsLabel.textContent = t("export.download", { months: monthsLabel });
-    elements.privacyNote.textContent = t("export.memberPrivacy", { months: monthsLabel });
-  }
+  elements.primaryActionIcon.innerHTML = icon("link", 18);
+  elements.primaryActionLabel.textContent = activeCalendarId
+    ? t("export.memberUpdate", { months: monthsLabel })
+    : t("export.memberSave", { months: monthsLabel });
+  elements.downloadIcsLabel.textContent = t("export.download", { months: monthsLabel });
+  elements.privacyNote.textContent = t("export.memberPrivacy", { months: monthsLabel });
 }
 
 function updateValidation() {
@@ -1816,11 +1820,47 @@ function errorMessage(error) {
   return translated === `errors.${code}` ? t("errors.generic") : translated;
 }
 
+function syncThemeControls() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  const iconName = dark ? "sun" : "moon";
+  const label = dark ? t("theme.toLight") : t("theme.toDark");
+  elements.welcomeThemeIcon.innerHTML = icon(iconName, 15);
+  elements.themeIcon.innerHTML = icon(iconName, 16);
+  for (const button of [elements.welcomeThemeButton, elements.themeButton]) {
+    button.setAttribute("aria-label", label);
+    button.title = label;
+  }
+}
+
+function applyTheme(theme, options = {}) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+  document
+    .querySelectorAll('meta[name="theme-color"]')
+    .forEach((meta) => meta.setAttribute("content", nextTheme === "dark" ? "#141612" : "#eff1eb"));
+  if (options.persist !== false) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // The current page can still switch themes when storage is unavailable.
+    }
+  }
+  syncThemeControls();
+}
+
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+}
+
 function refreshLanguageButton() {
   const label = t("language.label");
   elements.languageLabel.textContent = label;
+  elements.welcomeLanguageLabel.textContent = label;
   elements.languageButton.setAttribute("aria-label", t("language.switch"));
+  elements.welcomeLanguageButton.setAttribute("aria-label", t("language.switch"));
   elements.languageButton.title = t("language.switch");
+  elements.welcomeLanguageButton.title = t("language.switch");
+  syncThemeControls();
 }
 
 function refreshLocalizedUI() {
@@ -1843,6 +1883,7 @@ function refreshLocalizedUI() {
   } else {
     elements.authTitle.textContent = elements.loginForm.hidden ? t("auth.register") : t("auth.login");
   }
+  setWelcomeAuthTab(elements.welcomeRegisterForm.hidden ? "login" : "register");
 
   if (currentLinks) {
     elements.linkText.textContent = currentLinks.ics.replace(/^https?:\/\//, "");
@@ -1945,6 +1986,11 @@ function ensureTimezoneForLink() {
 
 function applyUserUI() {
   const loggedIn = Boolean(currentUser);
+  elements.welcomeView.hidden = loggedIn;
+  elements.appHeader.hidden = !loggedIn;
+  elements.appMain.hidden = !loggedIn;
+  document.body.classList.toggle("is-authenticated", loggedIn);
+  document.body.classList.toggle("is-authenticating", !loggedIn && !authGateReady);
   elements.navCalendars.hidden = !loggedIn;
   elements.navAdmin.hidden = currentUser?.role !== "admin";
   elements.accountName.textContent = currentUser?.nickname || t("auth.login");
@@ -1952,7 +1998,7 @@ function applyUserUI() {
     ? currentUser.role === "admin"
       ? t("role.admin")
       : t("role.member")
-    : t("role.guest");
+    : t("role.member");
   elements.accountAvatar.innerHTML = loggedIn
     ? escapeHTML(currentUser.nickname.trim().slice(0, 1).toUpperCase())
     : icon("user", 15);
@@ -1965,6 +2011,51 @@ function applyUserUI() {
   }
 }
 
+function setWelcomeAuthStatus(message, isError = false) {
+  setFormStatus(elements.welcomeAuthStatus, message, isError);
+}
+
+function setWelcomeAuthReady(ready) {
+  authGateReady = ready;
+  elements.welcomeView.setAttribute("aria-busy", String(!ready));
+  elements.welcomeLoginSubmit.disabled = !ready;
+  elements.welcomeRegisterSubmit.disabled = !ready;
+  document.body.classList.toggle("is-authenticating", !ready);
+}
+
+function setWelcomeAuthTab(tab) {
+  const activeTab = tab === "register" ? "register" : "login";
+  for (const button of elements.welcomeTabs.querySelectorAll("[data-welcome-auth-tab]")) {
+    const active = button.dataset.welcomeAuthTab === activeTab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  }
+  elements.welcomeLoginForm.hidden = activeTab !== "login";
+  elements.welcomeRegisterForm.hidden = activeTab !== "register";
+  elements.welcomeAuthTitle.textContent =
+    activeTab === "login" ? t("welcome.welcomeBack") : t("welcome.createAccount");
+  elements.welcomeAuthDescription.textContent =
+    activeTab === "login"
+      ? t("welcome.authDescription")
+      : t("welcome.registerDescription");
+  setWelcomeAuthStatus("");
+}
+
+function showAuthView(focusLogin = false) {
+  currentUser = null;
+  elements.welcomeView.hidden = false;
+  elements.appHeader.hidden = true;
+  elements.appMain.hidden = true;
+  setWelcomeAuthTab("login");
+  window.scrollTo({ top: 0, behavior: "auto" });
+  if (focusLogin) {
+    requestAnimationFrame(() => {
+      elements.welcomeLoginForm.elements.username.focus();
+    });
+  }
+}
+
 async function refreshSession() {
   try {
     const data = await api("/api/auth/me");
@@ -1972,6 +2063,9 @@ async function refreshSession() {
     if (currentUser) await loadShiftLibraryForUser(currentUser);
   } catch {
     currentUser = null;
+  } finally {
+    setWelcomeAuthReady(true);
+    if (!currentUser) setWelcomeAuthStatus("");
   }
   applyUserUI();
 }
@@ -2014,6 +2108,10 @@ function requestConfirmation({
 }
 
 function openAuthDialog(tab = "login") {
+  if (!currentUser) {
+    showAuthView(true);
+    return;
+  }
   elements.accountPanel.hidden = true;
   elements.authTabs.hidden = false;
   setAuthTab(tab);
@@ -2022,7 +2120,7 @@ function openAuthDialog(tab = "login") {
 
 function openAccountDialog() {
   if (!currentUser) {
-    openAuthDialog("login");
+    showAuthView(true);
     return;
   }
   elements.authTabs.hidden = true;
@@ -2062,12 +2160,28 @@ function closeAuthDialog() {
   setFormStatus(elements.passwordStatus, "");
 }
 
+function authStatusSetter(formElement) {
+  return formElement === elements.welcomeLoginForm || formElement === elements.welcomeRegisterForm
+    ? setWelcomeAuthStatus
+    : setAuthStatus;
+}
+
+async function establishAuthenticatedSession(user) {
+  currentUser = user;
+  await loadShiftLibraryForUser(currentUser);
+  currentLinks = null;
+  applyUserUI();
+  invalidateLinks();
+}
+
 async function handleLogin(event) {
   event.preventDefault();
-  const form = new FormData(elements.loginForm);
-  const button = elements.loginForm.querySelector("button[type='submit']");
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const button = formElement.querySelector("button[type='submit']");
+  const setStatus = authStatusSetter(formElement);
   button.disabled = true;
-  setAuthStatus(t("auth.signingIn"));
+  setStatus(t("auth.signingIn"));
   try {
     const data = await api("/api/auth/login", {
       method: "POST",
@@ -2076,17 +2190,14 @@ async function handleLogin(event) {
         password: form.get("password")
       })
     });
-    currentUser = data.user;
-    await loadShiftLibraryForUser(currentUser);
-    currentLinks = null;
-    applyUserUI();
-    invalidateLinks();
-    closeAuthDialog();
-    elements.loginForm.reset();
+    await establishAuthenticatedSession(data.user);
+    formElement.reset();
+    if (formElement === elements.loginForm) closeAuthDialog();
+    else setWelcomeAuthStatus("");
     showToast(t("auth.loggedIn"));
     resumePendingSharedCycleImport();
   } catch (error) {
-    setAuthStatus(errorMessage(error), true);
+    setStatus(errorMessage(error), true);
   } finally {
     button.disabled = false;
   }
@@ -2094,10 +2205,12 @@ async function handleLogin(event) {
 
 async function handleRegister(event) {
   event.preventDefault();
-  const form = new FormData(elements.registerForm);
-  const button = elements.registerForm.querySelector("button[type='submit']");
+  const formElement = event.currentTarget;
+  const form = new FormData(formElement);
+  const button = formElement.querySelector("button[type='submit']");
+  const setStatus = authStatusSetter(formElement);
   button.disabled = true;
-  setAuthStatus(t("auth.submitting"));
+  setStatus(t("auth.submitting"));
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
@@ -2110,21 +2223,18 @@ async function handleRegister(event) {
     });
 
     if (data.user?.status === "approved") {
-      currentUser = data.user;
-      await loadShiftLibraryForUser(currentUser);
-      currentLinks = null;
-      applyUserUI();
-      invalidateLinks();
-      closeAuthDialog();
-      elements.registerForm.reset();
+      await establishAuthenticatedSession(data.user);
+      formElement.reset();
+      if (formElement === elements.registerForm) closeAuthDialog();
+      else setWelcomeAuthStatus("");
       showToast(data.bootstrap ? t("auth.adminCreated") : t("auth.registered"));
       resumePendingSharedCycleImport();
     } else {
-      setAuthStatus(t("auth.pending"));
-      elements.registerForm.reset();
+      setStatus(t("auth.pending"));
+      formElement.reset();
     }
   } catch (error) {
-    setAuthStatus(errorMessage(error), true);
+    setStatus(errorMessage(error), true);
   } finally {
     button.disabled = false;
   }
@@ -2203,7 +2313,7 @@ function clearAuthenticatedState() {
   selectedMergedRequestId += 1;
   activeCalendarId = null;
   currentLinks = null;
-  activeShiftPresetStorageKey = GUEST_SHIFT_PRESETS_STORAGE_KEY;
+  activeShiftPresetStorageKey = DEFAULT_SHIFT_PRESETS_STORAGE_KEY;
   shiftPresets = loadShiftPresets(activeShiftPresetStorageKey);
   ensureCyclePresetAssignments();
   renderPresets();
@@ -2226,6 +2336,7 @@ async function logout() {
   clearAuthenticatedState();
   closeAuthDialog();
   showView("builder");
+  showAuthView(true);
   showToast(t("auth.loggedOut"));
 }
 
@@ -2269,21 +2380,15 @@ async function persistCalendar() {
 }
 
 async function ensureLinks(confirmTimezone = true) {
+  if (!currentUser) {
+    showAuthView(true);
+    return null;
+  }
   if (!updateValidation()) throw new Error(getValidationErrors()[0]);
   if (currentLinks) return currentLinks;
   if (confirmTimezone && !(await ensureTimezoneForLink())) return null;
 
-  if (currentUser) return persistCalendar();
-
-  const data = await api("/api/guest-link", {
-    method: "POST",
-    body: JSON.stringify({ plan: compactPlan() })
-  });
-  currentLinks = buildLinks(data.path, data.months);
-  elements.linkText.textContent = currentLinks.ics.replace(/^https?:\/\//, "");
-  elements.copyLinkIcon.disabled = false;
-  updateActionLabels();
-  return currentLinks;
+  return persistCalendar();
 }
 
 async function copyText(value) {
@@ -2308,11 +2413,7 @@ async function copySubscriptionLink() {
     const links = await ensureLinks();
     if (!links) return;
     await copyText(links.ics);
-    showToast(
-      currentUser
-        ? t("toast.linkCopied", { months: plural("units.months", links.months) })
-        : t("toast.guestLinkCopied", { months: plural("units.months", links.months) })
-    );
+    showToast(t("toast.linkCopied", { months: plural("units.months", links.months) }));
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
@@ -2325,13 +2426,7 @@ async function runPrimaryAction() {
 async function downloadCalendar() {
   try {
     if (!currentUser) {
-      if (!updateValidation()) throw new Error(getValidationErrors()[0]);
-      const data = await api("/api/guest-export", {
-        method: "POST",
-        body: JSON.stringify({ plan: compactPlan() })
-      });
-      window.location.href = absoluteUrl(data.path);
-      showToast(t("toast.guestExportReady", { months: plural("units.months", data.months) }));
+      showAuthView(true);
       return;
     }
     const links = await ensureLinks(false);
@@ -3160,6 +3255,14 @@ function loadStoredPlan() {
 }
 
 function bindEvents() {
+  for (const button of elements.welcomeTabs.querySelectorAll("[data-welcome-auth-tab]")) {
+    button.addEventListener("click", () => setWelcomeAuthTab(button.dataset.welcomeAuthTab));
+  }
+  elements.welcomeLoginForm.addEventListener("submit", handleLogin);
+  elements.welcomeRegisterForm.addEventListener("submit", handleRegister);
+  elements.welcomeLanguageButton.addEventListener("click", toggleLanguage);
+  elements.welcomeThemeButton.addEventListener("click", toggleTheme);
+
   for (const button of document.querySelectorAll("[data-view]")) {
     button.addEventListener("click", () => showView(button.dataset.view));
   }
@@ -3287,6 +3390,7 @@ function bindEvents() {
     else openAuthDialog("login");
   });
   elements.languageButton.addEventListener("click", toggleLanguage);
+  elements.themeButton.addEventListener("click", toggleTheme);
   elements.timezoneForm.addEventListener("submit", confirmTimezoneSelection);
   elements.timezoneClose.addEventListener("click", cancelTimezoneDialog);
   elements.timezoneCancel.addEventListener("click", cancelTimezoneDialog);
@@ -3519,6 +3623,7 @@ function bindEvents() {
 
 async function initialize() {
   hydrateStaticIcons();
+  applyTheme(document.documentElement.dataset.theme, { persist: false });
   timezoneConfirmedForLink = getLanguage() !== "en";
   shiftPresets = loadShiftPresets();
   state = loadStoredPlan() ?? createDefaultState();
@@ -3529,6 +3634,9 @@ async function initialize() {
   renderCycle();
   renderPreview();
   bindEvents();
+  setWelcomeAuthReady(false);
+  setWelcomeAuthTab("login");
+  setWelcomeAuthStatus(t("welcome.checking"));
 
   elements.inviteExpiry.value = addDays(todayISODate(), 7);
 

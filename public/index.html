@@ -42,10 +42,248 @@
     <link rel="apple-touch-icon" href="/assets/brand/sloop-icon-180.png" />
     <link rel="mask-icon" href="/assets/brand/sloop-mark.svg" color="#181B17" />
     <link rel="manifest" href="/site.webmanifest" />
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("sloop.theme.v1");
+          const theme =
+            saved === "light" || saved === "dark"
+              ? saved
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.dataset.theme = theme;
+        } catch {
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <header class="topbar">
+  <body class="is-authenticating">
+    <section class="welcome-view" id="welcomeView" aria-labelledby="welcomeTitle" aria-busy="true">
+      <header class="welcome-topbar">
+        <a class="welcome-brand" href="/" aria-label="Sloop" data-i18n-aria-label="nav.home">
+          <img src="/assets/brand/sloop-icon.svg" alt="" width="30" height="30" />
+          <span>Sloop</span>
+        </a>
+        <div class="welcome-top-actions">
+          <span class="welcome-access-badge">
+            <span data-icon="lock" aria-hidden="true"></span>
+            <span data-i18n="welcome.memberAccess">成员访问</span>
+          </span>
+          <button class="welcome-language" id="welcomeLanguageButton" type="button">
+            <span data-icon="languages" aria-hidden="true"></span>
+            <span id="welcomeLanguageLabel">EN</span>
+          </button>
+          <button
+            class="welcome-language welcome-theme-button"
+            id="welcomeThemeButton"
+            type="button"
+            aria-label="切换深色模式"
+            data-i18n-aria-label="theme.toDark"
+          >
+            <span id="welcomeThemeIcon" data-icon="moon" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="welcome-shell">
+        <section class="welcome-intro">
+          <div class="welcome-intro-copy">
+            <p class="welcome-kicker" data-i18n="welcome.eyebrow">轮转班表，井然有序</p>
+            <h1 id="welcomeTitle">
+              <span data-i18n="welcome.titleLead">每一轮班次，</span>
+              <span data-i18n="welcome.titleTail">都回到生活。</span>
+            </h1>
+            <p class="welcome-description" data-i18n="welcome.description">
+              登录后继续编排周期、保存班表，并让日历在每个设备上保持一致。
+            </p>
+          </div>
+
+          <div class="welcome-calendar-preview" aria-hidden="true">
+            <div class="welcome-calendar-topline">
+              <span class="welcome-calendar-mode">
+                <span class="welcome-status-dot"></span>
+                <span data-i18n="welcome.liveCycle">7 天轮转</span>
+              </span>
+              <span class="welcome-calendar-time">08:00 — 20:00</span>
+            </div>
+            <div class="welcome-week">
+              <span class="welcome-day">
+                <small>01</small><i class="is-day"></i><i class="is-day"></i>
+              </span>
+              <span class="welcome-day">
+                <small>02</small><i class="is-day"></i><i class="is-day"></i>
+              </span>
+              <span class="welcome-day">
+                <small>03</small><i class="is-night"></i><i class="is-night"></i>
+              </span>
+              <span class="welcome-day is-today">
+                <small>04</small><i class="is-night"></i><i class="is-off"></i>
+              </span>
+              <span class="welcome-day">
+                <small>05</small><i class="is-off"></i><i class="is-off"></i>
+              </span>
+              <span class="welcome-day">
+                <small>06</small><i class="is-day"></i><i class="is-day"></i>
+              </span>
+              <span class="welcome-day">
+                <small>07</small><i class="is-night"></i><i class="is-night"></i>
+              </span>
+            </div>
+            <div class="welcome-calendar-footline">
+              <span class="welcome-today-label" data-i18n="common.today">今天</span>
+              <span class="welcome-calendar-rule"></span>
+              <span class="welcome-sync-label">iCal · Sync</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="welcome-access-panel" aria-labelledby="welcomeAuthTitle">
+          <div class="welcome-auth-heading">
+            <p class="eyebrow" data-i18n="welcome.eyebrow">成员访问</p>
+            <h2 id="welcomeAuthTitle" data-i18n="welcome.welcomeBack">欢迎回来</h2>
+            <p id="welcomeAuthDescription" data-i18n="welcome.authDescription">
+              登录后继续管理你的周期与日历订阅。
+            </p>
+          </div>
+
+          <div
+            class="welcome-tabs"
+            role="tablist"
+            aria-label="登录或注册"
+            data-i18n-aria-label="auth.tabs"
+          >
+            <button
+              class="is-active"
+              id="welcomeLoginTab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="welcomeLoginForm"
+              data-welcome-auth-tab="login"
+              data-i18n="auth.login"
+            >
+              登录
+            </button>
+            <button
+              id="welcomeRegisterTab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="welcomeRegisterForm"
+              data-welcome-auth-tab="register"
+              data-i18n="auth.register"
+            >
+              注册
+            </button>
+          </div>
+
+          <form class="welcome-form" id="welcomeLoginForm" role="tabpanel" aria-labelledby="welcomeLoginTab">
+            <label>
+              <span data-i18n="auth.username">用户名</span>
+              <input
+                name="username"
+                type="text"
+                autocomplete="username"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                minlength="3"
+                maxlength="24"
+                required
+              />
+            </label>
+            <label>
+              <span data-i18n="auth.password">密码</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+            <button class="welcome-submit" id="welcomeLoginSubmit" type="submit" disabled>
+              <span data-i18n="welcome.continue">登录并继续</span>
+              <span data-icon="arrowRight" aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <form
+            class="welcome-form"
+            id="welcomeRegisterForm"
+            role="tabpanel"
+            aria-labelledby="welcomeRegisterTab"
+            hidden
+          >
+            <div class="welcome-field-row">
+              <label>
+                <span data-i18n="auth.username">用户名</span>
+                <input
+                  name="username"
+                  type="text"
+                  autocomplete="username"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  minlength="3"
+                  maxlength="24"
+                  required
+                />
+              </label>
+              <label>
+                <span data-i18n="auth.nickname">昵称</span>
+                <input name="nickname" type="text" autocomplete="nickname" maxlength="30" required />
+              </label>
+            </div>
+            <label>
+              <span data-i18n="auth.password">密码</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="128"
+                required
+              />
+            </label>
+            <label>
+              <span data-i18n="auth.inviteCode">邀请码</span>
+              <input
+                name="inviteCode"
+                type="text"
+                autocomplete="off"
+                autocapitalize="characters"
+                maxlength="32"
+                placeholder="选填"
+                data-i18n-placeholder="auth.inviteOptional"
+              />
+            </label>
+            <button class="welcome-submit" id="welcomeRegisterSubmit" type="submit" disabled>
+              <span data-i18n="auth.submitRegister">提交注册</span>
+              <span data-icon="arrowRight" aria-hidden="true"></span>
+            </button>
+            <p class="welcome-form-note" data-i18n="auth.registerNote">
+              邀请码注册直接通过；其他注册申请需要管理员审批。
+            </p>
+          </form>
+
+          <p class="welcome-auth-status" id="welcomeAuthStatus" aria-live="polite">
+            正在确认登录状态…
+          </p>
+
+          <p class="welcome-security-note">
+            <span data-icon="lock" aria-hidden="true"></span>
+            <span data-i18n="welcome.memberOnly">仅限已批准的成员访问，游客使用已关闭。</span>
+          </p>
+        </section>
+      </div>
+    </section>
+
+    <header class="topbar" id="appHeader" hidden>
       <a class="brand" href="/" aria-label="Sloop 首页" data-nav="builder" data-i18n-aria-label="nav.home">
         <img class="brand-mark" src="/assets/brand/sloop-icon.svg" alt="" width="24" height="24" />
         <span class="brand-name">Sloop</span>
@@ -96,17 +334,26 @@
           <span class="account-avatar" id="accountAvatar" data-icon="user" aria-hidden="true"></span>
           <span class="account-copy">
             <strong id="accountName" data-i18n="auth.login">登录</strong>
-            <small id="accountRole" data-i18n="role.guest">游客</small>
+            <small id="accountRole" data-i18n="role.member">成员</small>
           </span>
         </button>
         <button class="language-button" id="languageButton" type="button">
           <span data-icon="languages" aria-hidden="true"></span>
           <span id="languageLabel">EN</span>
         </button>
+        <button
+          class="theme-button"
+          id="themeButton"
+          type="button"
+          aria-label="切换深色模式"
+          data-i18n-aria-label="theme.toDark"
+        >
+          <span id="themeIcon" data-icon="moon" aria-hidden="true"></span>
+        </button>
       </nav>
     </header>
 
-    <main>
+    <main id="appMain" hidden>
       <section class="app-frame" id="builderView" aria-labelledby="page-title">
         <section class="editor" aria-labelledby="page-title">
           <header class="editor-heading">
@@ -284,8 +531,8 @@
               </button>
             </div>
 
-            <p class="privacy-note" id="privacyNote" data-i18n="export.guestPrivacy">
-              推荐游客下载 .ics，最多覆盖 6 个月。临时订阅链接覆盖 3 个月，7 天后失效并定期清除。
+            <p class="privacy-note" id="privacyNote" data-i18n="export.memberPrivacy">
+              订阅地址带服务端签名，覆盖未来 {months}。修改周期不会改变链接，停用账号后链接失效。
             </p>
           </section>
         </aside>
@@ -423,7 +670,7 @@
         <section class="admin-panel" id="backupPanel" hidden>
           <div class="admin-panel-heading">
             <h2 data-i18n="backup.title">数据备份</h2>
-            <span data-i18n="backup.hint">不包含短期游客订阅</span>
+            <span data-i18n="backup.hint">不包含登录会话</span>
           </div>
           <div class="backup-layout">
             <section class="backup-block">

@@ -21,7 +21,7 @@
 
 ## 项目一览
 
-Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休息或自定义班次，指定周期从哪一天开始，然后导出 `.ics` 或生成订阅链接。它既能作为游客直接使用，也提供账户、成员审批、数据备份和自托管能力。
+Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休息或自定义班次，指定周期从哪一天开始，然后导出 `.ics` 或生成订阅链接。所有周期功能都需要登录后使用，并提供成员审批、数据备份和自托管能力。
 
 | | |
 | --- | --- |
@@ -63,10 +63,10 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 
 **导出与订阅**
 
-- 游客无需注册即可下载最多 6 个月的 `.ics`。
-- 游客也可创建 3 个月有效的临时订阅地址，地址在 7 天后失效。
+- 登录成员可下载已保存周期的 `.ics`，或生成带服务端签名的订阅地址。
 - 成员最多保存 50 份周期，单份订阅默认覆盖 12 个月，可调整为 1 到 24 个月。
 - 每份已保存周期都有稳定且带 HMAC 签名的订阅地址；编辑内容不会更换地址。
+- 本次升级将订阅签名切换到 v2，之前生成的成员与合并订阅地址全部失效，需要登录后重新复制。
 - 可将全部周期合并订阅，也可勾选部分周期生成单独签名、单独地址的合并日历。
 - 页面提供复制链接、下载文件和打开 `webcal:` 三种入口。
 
@@ -78,7 +78,7 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 - 管理员可审批、拒绝、停用或恢复账号，调整管理员/成员角色，并为其他用户重置密码。
 - 邀请码可设置使用次数上限和过期时间，默认最多使用 1 次。
 - 管理员可导出 JSON 备份，也可导入备份覆盖当前数据。
-- 备份不包含临时游客订阅和登录会话；导入后会强制所有人重新登录。
+- 备份不包含登录会话；导入后会强制所有人重新登录。
 
 **双语与时区**
 
@@ -202,13 +202,12 @@ GitHub Actions 会构建 `linux/amd64` 与 `linux/arm64` 镜像，并尝试发�
    pnpm deploy
    ```
 
-Worker 同时提供 API 和 `public/` 静态资源。`wrangler.jsonc` 中的 Cron Trigger 每天清理过期游客订阅；部署完成后可继续绑定自定义域名。
+Worker 同时提供 API 和 `public/` 静态资源。部署完成后可继续绑定自定义域名。
 
 ### 权限与安全设计
 
 | 身份 | 可执行操作 |
 | --- | --- |
-| 游客 | 下载 6 个月日历，创建 7 天有效、覆盖 3 个月的临时订阅 |
 | 待审批用户 | 等待管理员处理，尚不能使用周期功能 |
 | 成员 | 保存最多 50 份周期，创建 1 到 24 个月的订阅与合并订阅 |
 | 管理员 | 拥有成员能力，并管理用户、邀请码、密码重置与数据备份 |
@@ -217,7 +216,7 @@ Worker 同时提供 API 和 `public/` 静态资源。`wrangler.jsonc` 中的 Cro
 - 会话 Cookie 带 `HttpOnly` 和 `SameSite=Lax`；HTTPS 下自动添加 `Secure`。
 - 数据库只保存会话令牌的 SHA-256 摘要，不保存原始令牌。
 - 写操作要求同源请求，降低跨站请求伪造风险。
-- 游客临时令牌只以哈希形式写入数据库。
+- 旧的游客临时订阅表和公共订阅入口已移除，历史 `/api/guest.ics` 链接统一返回 `410 Gone`。
 - 成员订阅使用服务端 HMAC-SHA256 签名；无效签名、被停用账号或错误合并选择统一返回 404。
 - 日历响应带有私有缓存、`no-referrer` 与禁止索引提示，降低签名 URL 泄露风险。
 
@@ -240,7 +239,7 @@ pnpm test
 pnpm check
 ```
 
-`pnpm test` 覆盖计划校验、周期锚点、跨夜与休息规则、时区/夏令时、游客订阅、签名订阅、合并选择、备份恢复、管理员恢复和 ICS 转义/折行。
+`pnpm test` 覆盖计划校验、周期锚点、跨夜与休息规则、时区/夏令时、登录门禁、签名订阅、合并选择、备份恢复、管理员恢复和 ICS 转义/折行。
 
 `pnpm check` 会检查 Worker、前端与国际化脚本语法，并重新构建浏览器包。
 
@@ -316,8 +315,7 @@ The result can be downloaded as an `.ics` file or exposed as a subscription URL.
 
 **Share or subscribe**
 
-- Guests can download an `.ics` covering up to 6 months without an account.
-- Guests can also create a 3-month temporary subscription that expires after 7 days.
+- Signed-in members can download an `.ics` file or create a server-signed subscription link.
 - Members can store up to 50 cycles, each with a 1 to 24 month subscription range and a 12 month default.
 - Saved cycles receive stable, HMAC-signed subscription URLs. Editing the cycle does not change its URL.
 - Subscriptions can include every saved cycle or only a checked subset. A selected merge gets its own signed URL.
@@ -331,7 +329,7 @@ The result can be downloaded as an `.ics` file or exposed as a subscription URL.
 - Administrators can approve, reject, disable, or restore users, switch roles, and reset another user's password.
 - Invite codes support a usage limit and optional expiry, with a default limit of one use.
 - Administrators can export a JSON backup or import one to replace the current data.
-- Temporary guest subscriptions and login sessions are excluded from backups. An import revokes every session so users must sign in again.
+- Login sessions are excluded from backups. An import revokes every session so users must sign in again.
 
 **Language and time zones**
 
@@ -455,13 +453,12 @@ GitHub Actions builds `linux/amd64` and `linux/arm64` images and attempts to pub
    pnpm deploy
    ```
 
-The Worker serves both the API and the `public/` assets. A daily Cron Trigger in `wrangler.jsonc` removes expired guest subscriptions. A custom domain can be attached after the first deployment.
+The Worker serves both the API and the `public/` assets. A custom domain can be attached after the first deployment.
 
 ### Access model and safeguards
 
 | Identity | Allowed actions |
 | --- | --- |
-| Guest | Download a 6-month calendar and create a 7-day temporary subscription covering 3 months |
 | Pending user | Wait for administrator approval; cycle features remain unavailable |
 | Member | Store up to 50 cycles and create subscriptions or merged subscriptions covering 1 to 24 months |
 | Administrator | Use member features and manage users, invite codes, password resets, and backups |
@@ -470,8 +467,9 @@ The Worker serves both the API and the `public/` assets. A daily Cron Trigger in
 - Session cookies use `HttpOnly` and `SameSite=Lax`; HTTPS deployments also receive `Secure`.
 - Only SHA-256 digests of session tokens are stored in D1.
 - Mutating requests require a same-origin request context.
-- Temporary guest tokens are persisted only as hashes.
+- The legacy guest subscription table and public subscription entry points are removed. Historical `/api/guest.ics` links return `410 Gone`.
 - Member subscriptions use server-side HMAC-SHA256 signatures. Invalid signatures, disabled owners, and invalid merge selections all return 404.
+- Subscription signatures now use v2. Every member and merged subscription URL generated before this upgrade is invalid and must be copied again after signing in.
 - Calendar responses use private caching, `no-referrer`, and indexing protections to limit exposure of signed URLs.
 
 > [!WARNING]
@@ -493,7 +491,7 @@ pnpm test
 pnpm check
 ```
 
-`pnpm test` covers plan validation, today anchoring, overnight and rest behavior, time zones and daylight saving, guest subscriptions, signed subscriptions, merged selections, backup restore, administrator recovery, and ICS escaping/line folding.
+`pnpm test` covers plan validation, today anchoring, overnight and rest behavior, time zones and daylight saving, the login gate, signed subscriptions, merged selections, backup restore, administrator recovery, and ICS escaping/line folding.
 
 `pnpm check` validates the Worker, frontend, and i18n scripts, then rebuilds the browser bundle.
 

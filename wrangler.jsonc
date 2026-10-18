@@ -20,8 +20,5 @@
   "vars": {
     "APP_ENV": "production",
     "DEFAULT_TIMEZONE": "Asia/Shanghai"
-  },
-  "triggers": {
-    "crons": ["17 3 * * *"]
   }
 }

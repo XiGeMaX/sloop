@@ -5,15 +5,12 @@ import {
 } from "./public/shift-time.js";
 
 const MAX_CYCLE_DAYS = 35;
-const MAX_GUEST_MONTHS = 3;
-const MAX_GUEST_EXPORT_MONTHS = 6;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
 const MAX_ENCODED_PLAN_LENGTH = 24000;
 const MAX_DECODED_PLAN_LENGTH = 100000;
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
-const GUEST_LINK_TTL_SECONDS = 60 * 60 * 24 * 7;
-const MAX_ACTIVE_GUEST_SUBSCRIPTIONS = 10000;
+const SUBSCRIPTION_LINK_VERSION = 2;
 const MAX_CALENDARS_PER_USER = 50;
 const MAX_SHIFT_PRESETS = 12;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
@@ -495,7 +492,7 @@ function todayDateParts(now, timezone) {
 function buildCalendar(planInput, options = {}) {
   const plan = normalizePlan(planInput);
   const now = options.now ?? new Date();
-  const months = Math.max(1, Math.min(24, Number(options.months) || MAX_GUEST_MONTHS));
+  const months = Math.max(1, Math.min(24, Number(options.months) || DEFAULT_MEMBER_MONTHS));
   const uidNamespace = String(options.uidNamespace ?? "");
   const start = options.startDate ? parseDateParts(options.startDate) : todayDateParts(now, plan.timezone);
   if (!start) throw new ApiError(400, "invalid_start_date");
@@ -1414,7 +1411,6 @@ async function importBackup(request, env) {
   const snapshot = normalizeBackupSnapshot(await readJson(request, MAX_BACKUP_BYTES));
   const db = requireDatabase(env);
   const statements = [
-    db.prepare("DELETE FROM guest_subscriptions"),
     db.prepare("DELETE FROM sessions"),
     db.prepare("DELETE FROM calendars"),
     db.prepare("DELETE FROM shift_libraries"),
@@ -1603,7 +1599,10 @@ async function disableInvite(request, env, inviteId) {
 }
 
 async function memberSubscriptionSignature(slug, secret) {
-  return hmacBase64Url(`member-subscription:${slug}`, secret);
+  return hmacBase64Url(
+    `member-subscription:v${SUBSCRIPTION_LINK_VERSION}:${slug}`,
+    secret
+  );
 }
 
 async function serializeCalendar(row, env) {
@@ -1730,71 +1729,11 @@ async function deleteCalendar(request, env, calendarId) {
   return emptyResponse();
 }
 
-async function createGuestLink(request, env) {
-  requireSameOrigin(request);
-  const body = await readJson(request);
-  return createGuestRecord(request, env, normalizePlan(body.plan), MAX_GUEST_MONTHS);
-}
-
-async function createGuestExport(request, env) {
-  requireSameOrigin(request);
-  const body = await readJson(request);
-  return createGuestRecord(
-    request,
-    env,
-    normalizePlan(body.plan),
-    MAX_GUEST_EXPORT_MONTHS,
-    true
-  );
-}
-
-async function createGuestRecord(request, env, plan, months, download = false) {
-  const db = requireDatabase(env);
-  const now = Math.floor(Date.now() / 1000);
-  await cleanupGuestSubscriptions(env, now);
-  const active = await db
-    .prepare("SELECT COUNT(*) AS count FROM guest_subscriptions WHERE expires_at > ?")
-    .bind(now)
-    .first();
-  if (Number(active?.count || 0) >= MAX_ACTIVE_GUEST_SUBSCRIPTIONS) {
-    throw new ApiError(503, "guest_capacity_reached");
-  }
-
-  const token = randomToken(32);
-  const tokenHash = await sha256Base64(token);
-  const expiresAt = now + GUEST_LINK_TTL_SECONDS;
-  await db
-    .prepare(
-      `INSERT INTO guest_subscriptions
-       (id, token_hash, plan_json, months, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      randomToken(16),
-      tokenHash,
-      JSON.stringify(plan),
-      months,
-      new Date(now * 1000).toISOString(),
-      expiresAt
-    )
-    .run();
-
-  return jsonResponse({
-    path: `/api/guest.ics?token=${token}${download ? "&download=1" : ""}`,
-    months,
-    expiresAt
-  });
-}
-
-async function cleanupGuestSubscriptions(env, now = Math.floor(Date.now() / 1000)) {
-  return requireDatabase(env)
-    .prepare("DELETE FROM guest_subscriptions WHERE expires_at <= ?")
-    .bind(now)
-    .run();
-}
-
 async function mergedSubscriptionToken(userId, secret) {
-  const signature = await hmacBase64Url(`merged-subscription:${userId}`, secret);
+  const signature = await hmacBase64Url(
+    `merged-subscription:v${SUBSCRIPTION_LINK_VERSION}:${userId}`,
+    secret
+  );
   return `${userId}.${signature}`;
 }
 
@@ -1818,7 +1757,7 @@ function normalizeMergedCalendarIds(value, errorStatus = 400) {
 
 async function mergedSelectionSignature(userId, calendarIds, secret) {
   return hmacBase64Url(
-    `merged-selection:${userId}:${calendarIds.join(",")}`,
+    `merged-selection:v${SUBSCRIPTION_LINK_VERSION}:${userId}:${calendarIds.join(",")}`,
     secret
   );
 }
@@ -1851,34 +1790,6 @@ async function createMergedSubscription(request, env) {
     subscriptionPath: `/api/ics/merged/${token}${query}`,
     calendarCount: selectedIds.length || availableIds.size
   });
-}
-
-async function serveGuestCalendar(request, env) {
-  const url = new URL(request.url);
-  const token = url.searchParams.get("token") || "";
-  if (!/^[A-Za-z0-9_-]{20,200}$/.test(token)) {
-    throw new ApiError(403, "link_expired");
-  }
-  const tokenHash = await sha256Base64(token);
-  const row = await requireDatabase(env)
-    .prepare(
-      `SELECT plan_json, months
-       FROM guest_subscriptions
-       WHERE token_hash = ? AND expires_at > ?
-       LIMIT 1`
-    )
-    .bind(tokenHash, Math.floor(Date.now() / 1000))
-    .first();
-  if (!row) throw new ApiError(403, "link_expired");
-
-  let plan;
-  try {
-    plan = normalizePlan(JSON.parse(row.plan_json));
-  } catch {
-    throw new ApiError(500, "calendar_data_invalid");
-  }
-  const months = Math.max(1, Math.min(MAX_GUEST_EXPORT_MONTHS, Number(row.months) || 3));
-  return serveCalendar(plan, months, request);
 }
 
 async function serveMemberCalendar(request, env, slug) {
@@ -1923,7 +1834,10 @@ async function serveMergedCalendar(request, env, token) {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(userId) || !signature) {
     throw new ApiError(404, "merged_calendar_not_found");
   }
-  const expected = await hmacBase64Url(`merged-subscription:${userId}`, secret);
+  const expected = await hmacBase64Url(
+    `merged-subscription:v${SUBSCRIPTION_LINK_VERSION}:${userId}`,
+    secret
+  );
   if (!constantTimeEqual(signature, expected)) {
     throw new ApiError(404, "merged_calendar_not_found");
   }
@@ -2002,6 +1916,14 @@ async function handleApiRequest(request, env) {
     });
   }
 
+  if (
+    path === "/api/guest-link" ||
+    path === "/api/guest-export" ||
+    path === "/api/guest.ics"
+  ) {
+    throw new ApiError(410, "guest_access_disabled");
+  }
+
   if (path === "/api/auth/register" && method === "POST") return registerUser(request, env);
   if (path === "/api/auth/login" && method === "POST") return loginUser(request, env);
   if (path === "/api/auth/logout" && method === "POST") return logoutUser(request, env);
@@ -2016,9 +1938,6 @@ async function handleApiRequest(request, env) {
   if (path === "/api/shift-library" && method === "PUT") {
     return updateShiftLibrary(request, env);
   }
-
-  if (path === "/api/guest-link" && method === "POST") return createGuestLink(request, env);
-  if (path === "/api/guest-export" && method === "POST") return createGuestExport(request, env);
 
   if (path === "/api/merged-subscription" && method === "GET") {
     return createMergedSubscription(request, env);
@@ -2057,10 +1976,6 @@ async function handleApiRequest(request, env) {
     return serveMemberCalendar(request, env, memberCalendarMatch[1]);
   }
 
-  if (path === "/api/guest.ics" && (method === "GET" || method === "HEAD")) {
-    return serveGuestCalendar(request, env);
-  }
-
   throw new ApiError(404, "not_found");
 }
 
@@ -2088,7 +2003,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/guest.ics" || /^\/api\/ics\//.test(url.pathname)) {
+    if (/^\/api\/ics\//.test(url.pathname)) {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
       try {
         return await handleApiRequest(request, env);
@@ -2117,13 +2032,5 @@ export default {
 
     if (env?.ASSETS) return env.ASSETS.fetch(request);
     return new Response("Not found", { status: 404 });
-  },
-
-  async scheduled(controller, env, ctx) {
-    ctx.waitUntil(
-      cleanupGuestSubscriptions(env).catch((error) => {
-        console.error("guest_subscription_cleanup_failed", error);
-      })
-    );
   }
 };
