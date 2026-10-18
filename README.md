@@ -11,7 +11,12 @@
 
 <p align="center">
   <a href="#中文">中文</a> ·
-  <a href="#english">English</a>
+  <a href="#english">English</a> ·
+  <a href="#license">License</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
 ## 项目一览
@@ -539,3 +544,9 @@ Dockerfile                Container image definition
 docker-entrypoint.sh      Container startup, migrations, and runtime configuration
 wrangler.jsonc            Worker, D1, static assets, and Cron settings
 ```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+本项目采用 [MIT 许可证](LICENSE)。
