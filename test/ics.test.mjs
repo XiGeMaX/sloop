@@ -411,6 +411,45 @@ test("allows member subscription durations up to 24 months", () => {
   assert.equal(normalizePlan(samplePlan).durationMonths, 12);
 });
 
+test("normalizes backward cycle settings and caps the past range", () => {
+  const enabled = normalizePlan({ ...samplePlan, b: 1, bm: 5 });
+  assert.equal(enabled.backwardCycle, true);
+  assert.equal(enabled.backwardMonths, 5);
+
+  const capped = normalizePlan({ ...samplePlan, b: 1, bm: 99 });
+  assert.equal(capped.backwardMonths, 24);
+
+  const disabled = normalizePlan(samplePlan);
+  assert.equal(disabled.backwardCycle, false);
+  assert.equal(disabled.backwardMonths, 3);
+});
+
+test("generates past dates with the reverse cycle order", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    i: 0,
+    b: 1,
+    bm: 1,
+    c: [
+      ["w", "A", "08:00", "20:00", "sky"],
+      ["w", "B", "08:00", "20:00", "indigo"],
+      ["w", "C", "08:00", "20:00", "violet"]
+    ]
+  });
+  const calendar = buildCalendar(plan, {
+    startDate: "2026-10-18",
+    months: 1,
+    now: testNow
+  });
+  const events = calendar.split("BEGIN:VEVENT").slice(1);
+  const eventOn = (date) => events.find((event) => event.includes(`DTSTART:${date}`));
+
+  assert.ok(eventOn("20260918T000000Z"));
+  assert.match(eventOn("20261017T000000Z"), /SUMMARY:C/);
+  assert.match(eventOn("20261018T000000Z"), /SUMMARY:A/);
+  assert.match(eventOn("20261019T000000Z"), /SUMMARY:B/);
+});
+
 test("normalizes usernames without requiring email addresses", () => {
   assert.equal(normalizeUsername("  Sloop_User  "), "sloop_user");
   assert.equal(normalizeUsername("值班员-01"), "值班员-01");

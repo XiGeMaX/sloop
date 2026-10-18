@@ -8,6 +8,8 @@ import {
 const MAX_CYCLE_DAYS = 35;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
+const DEFAULT_BACKWARD_MONTHS = 3;
+const MAX_BACKWARD_MONTHS = 24;
 const MAX_ENCODED_PLAN_LENGTH = 24000;
 const MAX_DECODED_PLAN_LENGTH = 100000;
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
@@ -194,11 +196,17 @@ function normalizePlan(raw) {
   const durationMonths = Number.isFinite(durationValue)
     ? Math.max(1, Math.min(MAX_MEMBER_MONTHS, Math.round(durationValue)))
     : DEFAULT_MEMBER_MONTHS;
+  const backwardValue = Number(raw.bm ?? raw.backwardMonths ?? DEFAULT_BACKWARD_MONTHS);
+  const backwardMonths = Number.isFinite(backwardValue)
+    ? Math.max(1, Math.min(MAX_BACKWARD_MONTHS, Math.round(backwardValue)))
+    : DEFAULT_BACKWARD_MONTHS;
 
   return {
     title: cleanText(raw.t ?? raw.title, 64) || "轮转班表",
     timezone,
     durationMonths,
+    backwardCycle: Boolean(raw.b ?? raw.backwardCycle),
+    backwardMonths,
     todayIndex:
       Number.isInteger(todayIndex) && todayIndex >= 0 && todayIndex < cycle.length ? todayIndex : 0,
     includeRest: Boolean(raw.r ?? raw.includeRest),
@@ -508,8 +516,10 @@ function buildCalendar(planInput, options = {}) {
   const start = options.startDate ? parseDateParts(options.startDate) : todayDateParts(now, plan.timezone);
   if (!start) throw new ApiError(400, "invalid_start_date");
 
-  const rangeStart = new Date(Date.UTC(start.year, start.month - 1, start.day));
-  const rangeEnd = addMonths(rangeStart, months);
+  const today = new Date(Date.UTC(start.year, start.month - 1, start.day));
+  const backwardMonths = plan.backwardCycle ? plan.backwardMonths : 0;
+  const rangeStart = addMonths(today, -backwardMonths);
+  const rangeEnd = addMonths(today, months);
   const stamp = formatIcsUtc(now);
   const lines = [
     "BEGIN:VCALENDAR",
@@ -519,7 +529,11 @@ function buildCalendar(planInput, options = {}) {
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(plan.title)}`,
     `X-WR-TIMEZONE:${escapeIcsText(plan.timezone)}`,
-    `X-WR-CALDESC:${escapeIcsText(`从今天起 ${months} 个月的周期班表`)}`,
+    `X-WR-CALDESC:${escapeIcsText(
+      backwardMonths
+        ? `从今天起向前 ${backwardMonths} 个月至未来 ${months} 个月的周期班表`
+        : `从今天起 ${months} 个月的周期班表`
+    )}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     "X-PUBLISHED-TTL:PT1H",
     `X-SLOOP-TODAY-INDEX:${plan.todayIndex + 1}`
@@ -529,7 +543,10 @@ function buildCalendar(planInput, options = {}) {
     const date = addUtcDays(rangeStart, dayOffset);
     if (date >= rangeEnd) break;
 
-    const cycleIndex = (plan.todayIndex + dayOffset) % plan.cycle.length;
+    const offsetFromToday = Math.round((date.getTime() - today.getTime()) / 86400000);
+    const cycleIndex =
+      ((plan.todayIndex + offsetFromToday) % plan.cycle.length + plan.cycle.length) %
+      plan.cycle.length;
     const shift = plan.cycle[cycleIndex];
     const previousShift =
       plan.cycle[(cycleIndex - 1 + plan.cycle.length) % plan.cycle.length];

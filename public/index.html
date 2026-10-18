@@ -373,10 +373,23 @@
                 <p class="section-index">01</p>
                 <h2 id="cycle-heading" data-i18n="builder.cycleHeading">周期组合</h2>
               </div>
-              <button class="section-settings-trigger" type="button" data-shift-settings>
-                <span data-icon="settings" aria-hidden="true"></span>
-                <span data-i18n="builder.shiftSettings">班次设置</span>
-              </button>
+              <div class="section-heading-actions">
+                <button class="section-settings-trigger" type="button" data-shift-settings>
+                  <span data-icon="settings" aria-hidden="true"></span>
+                  <span data-i18n="builder.shiftSettings">班次设置</span>
+                </button>
+                <button
+                  class="page-scroll-lock"
+                  id="pageScrollLock"
+                  type="button"
+                  aria-label="锁定页面位置"
+                  aria-pressed="false"
+                  data-i18n-aria-label="builder.lockPageScroll"
+                  data-i18n-title="builder.lockPageScroll"
+                >
+                  <span id="pageScrollLockIcon" data-icon="lockOpen" aria-hidden="true"></span>
+                </button>
+              </div>
             </div>
             <p class="section-meta" id="cycleMeta">0 天循环</p>
 
@@ -446,6 +459,42 @@
             </summary>
 
             <div class="preview-content">
+              <section class="backward-cycle-control" aria-labelledby="backwardCycleTitle">
+                <label class="backward-cycle-toggle">
+                  <span class="backward-cycle-copy">
+                    <strong id="backwardCycleTitle" data-i18n="preview.backwardCycle"
+                      >向历史反向循环</strong
+                    >
+                    <small id="backwardCycleHint" data-i18n="preview.backwardCycleHint"
+                      >按相反顺序补齐过去班次</small
+                    >
+                  </span>
+                  <input
+                    id="backwardCycle"
+                    type="checkbox"
+                    aria-describedby="backwardCycleHint"
+                  />
+                  <span class="backward-cycle-switch" aria-hidden="true"></span>
+                </label>
+                <label class="backward-cycle-duration" id="backwardMonthsControl">
+                  <span data-i18n="preview.backwardMonths">反向时长</span>
+                  <span class="backward-cycle-input">
+                    <input
+                      id="backwardMonths"
+                      type="number"
+                      min="1"
+                      max="24"
+                      step="1"
+                      value="3"
+                      inputmode="numeric"
+                      aria-label="反向循环时长，单位月"
+                      data-i18n-aria-label="preview.backwardMonthsAria"
+                    />
+                    <span data-i18n="export.monthsUnit">个月</span>
+                  </span>
+                </label>
+              </section>
+
               <section class="cycle-map" aria-labelledby="map-heading">
                 <div class="inspector-section-heading">
                   <h3 id="map-heading" data-i18n="preview.sequence">循环序列</h3>

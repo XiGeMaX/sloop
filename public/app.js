@@ -34,8 +34,11 @@ const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
 const DEFAULT_SHIFT_PRESETS_STORAGE_KEY = SHIFT_PRESETS_STORAGE_KEY;
 const USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX = "sloop.shift-presets.user.";
 const THEME_STORAGE_KEY = "sloop.theme.v1";
+const PAGE_SCROLL_LOCK_STORAGE_KEY = "sloop.page-scroll-lock.v1";
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
+const DEFAULT_BACKWARD_MONTHS = 3;
+const MAX_BACKWARD_MONTHS = 24;
 const MAX_SHIFT_PRESETS = 12;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const TONE_ORDER = [
@@ -132,7 +135,8 @@ const ICON_PATHS = {
   upload: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
   languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
-  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  lockOpen: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>'
 };
 
 const elements = {
@@ -161,14 +165,20 @@ const elements = {
   mobileCycleStrip: document.querySelector("#mobileCycleStrip"),
   mobileShiftPanel: document.querySelector("#mobileShiftPanel"),
   cycleMeta: document.querySelector("#cycleMeta"),
+  pageScrollLock: document.querySelector("#pageScrollLock"),
+  pageScrollLockIcon: document.querySelector("#pageScrollLockIcon"),
   todayShiftName: document.querySelector("#todayShiftName"),
   todayShiftTime: document.querySelector("#todayShiftTime"),
   cycleLengthLabel: document.querySelector("#cycleLengthLabel"),
   previewDetails: document.querySelector("#previewDetails"),
   rangeCopy: document.querySelector("#rangeCopy"),
   coverageBadge: document.querySelector("#coverageBadge"),
+  backwardCycle: document.querySelector("#backwardCycle"),
+  backwardMonths: document.querySelector("#backwardMonths"),
+  backwardMonthsControl: document.querySelector("#backwardMonthsControl"),
   sequenceTrack: document.querySelector("#sequenceTrack"),
   scheduleList: document.querySelector("#scheduleList"),
+  scheduleHeading: document.querySelector("#schedule-heading"),
   eventEstimate: document.querySelector("#eventEstimate"),
   validityBadge: document.querySelector("#validityBadge"),
   coverageControl: document.querySelector("#coverageControl"),
@@ -299,6 +309,7 @@ let currentLinks = null;
 let savedPlanTimer = 0;
 let dragState = null;
 let selectedShiftId = null;
+let pageScrollLocked = loadPageScrollLocked();
 let pendingTonePaletteScroll = null;
 let pendingTonePaletteScrollAt = 0;
 let calendars = [];
@@ -548,6 +559,8 @@ function createDefaultState() {
     timezone: DEFAULT_TIMEZONE,
     includeRest: false,
     durationMonths: DEFAULT_MEMBER_MONTHS,
+    backwardCycle: false,
+    backwardMonths: DEFAULT_BACKWARD_MONTHS,
     cycle,
     todayId: cycle[0].id
   };
@@ -633,6 +646,11 @@ function normalizeClientPlan(raw) {
       raw.d ?? raw.durationMonths,
       DEFAULT_MEMBER_MONTHS
     ),
+    backwardCycle: Boolean(raw.b ?? raw.backwardCycle),
+    backwardMonths: clampBackwardMonths(
+      raw.bm ?? raw.backwardMonths,
+      DEFAULT_BACKWARD_MONTHS
+    ),
     cycle,
     todayId: cycle[todayIndex].id
   };
@@ -649,6 +667,8 @@ function compactPlan(source = state) {
     z: source.timezone,
     r: source.includeRest ? 1 : 0,
     d: clampSubscriptionMonths(source.durationMonths, DEFAULT_MEMBER_MONTHS),
+    b: source.backwardCycle ? 1 : 0,
+    bm: clampBackwardMonths(source.backwardMonths, DEFAULT_BACKWARD_MONTHS),
     i: todayIndex,
     c: source.cycle.map((item) => [
       item.kind === "off" ? "o" : "w",
@@ -777,8 +797,18 @@ function addMonths(value, months) {
   return date;
 }
 
+function formatISODate(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
 function daysBetween(start, end) {
-  return Math.max(0, Math.round((end.getTime() - parseISODate(start).getTime()) / 86400000));
+  const startDate = typeof start === "string" ? parseISODate(start) : start;
+  const endDate = typeof end === "string" ? parseISODate(end) : end;
+  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
 }
 
 function formatShortDate(date) {
@@ -801,15 +831,38 @@ function coverageMonths() {
   return clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS);
 }
 
+function backwardMonths() {
+  return clampBackwardMonths(state.backwardMonths, DEFAULT_BACKWARD_MONTHS);
+}
+
+function totalCoverageMonths() {
+  return coverageMonths() + (state.backwardCycle ? backwardMonths() : 0);
+}
+
 function clampSubscriptionMonths(value, fallback = DEFAULT_MEMBER_MONTHS) {
   const months = Number(value);
   if (!Number.isFinite(months)) return fallback;
   return Math.max(1, Math.min(MAX_MEMBER_MONTHS, Math.round(months)));
 }
 
+function clampBackwardMonths(value, fallback = DEFAULT_BACKWARD_MONTHS) {
+  const months = Number(value);
+  if (!Number.isFinite(months)) return fallback;
+  return Math.max(1, Math.min(MAX_BACKWARD_MONTHS, Math.round(months)));
+}
+
+function cycleIndexAtOffset(offset) {
+  const length = state.cycle.length;
+  return length ? ((getTodayIndex() + offset) % length + length) % length : 0;
+}
+
 function formatRange() {
-  const start = todayISODate();
-  const end = addMonths(start, coverageMonths());
+  const today = todayISODate();
+  const startDate = state.backwardCycle
+    ? addMonths(today, -backwardMonths())
+    : parseISODate(today);
+  const end = addMonths(today, coverageMonths());
+  const start = formatISODate(startDate);
   const endLabel = new Intl.DateTimeFormat(getLocale(), {
     year: "numeric",
     month: "long",
@@ -1476,6 +1529,7 @@ function syncFieldValues() {
   elements.title.value = localizeBuiltInName(state.title);
   elements.includeRest.checked = state.includeRest;
   syncCoverageControl();
+  syncBackwardCycleControl();
 }
 
 function syncCoverageControl() {
@@ -1486,6 +1540,13 @@ function syncCoverageControl() {
       clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS)
     );
   }
+}
+
+function syncBackwardCycleControl() {
+  elements.backwardCycle.checked = state.backwardCycle;
+  elements.backwardMonths.value = String(backwardMonths());
+  elements.backwardMonths.disabled = !state.backwardCycle;
+  elements.backwardMonthsControl.classList.toggle("is-disabled", !state.backwardCycle);
 }
 
 function renderMeta() {
@@ -1526,24 +1587,32 @@ function renderSequence() {
 }
 
 function renderSchedule() {
-  const startDate = todayISODate();
-  const totalDays = daysBetween(startDate, addMonths(startDate, coverageMonths()));
-  const todayIndex = getTodayIndex();
+  const today = todayISODate();
+  const rangeStartDate = state.backwardCycle
+    ? addMonths(today, -backwardMonths())
+    : parseISODate(today);
+  const rangeStart = formatISODate(rangeStartDate);
+  const rangeEnd = formatISODate(addMonths(today, coverageMonths()));
+  const totalDays = daysBetween(rangeStart, rangeEnd);
+  const historyDays = state.backwardCycle ? daysBetween(rangeStart, today) : 0;
   let eventCount = 0;
 
   for (let offset = 0; offset < totalDays; offset += 1) {
-    const shift = state.cycle[(todayIndex + offset) % state.cycle.length];
+    const shift = state.cycle[cycleIndexAtOffset(offset - historyDays)];
     if (shift.kind === "work" || state.includeRest) eventCount += 1;
   }
 
+  const rowOffsets = state.backwardCycle
+    ? [-3, -2, -1, 0, 1, 2, 3, 4]
+    : Array.from({ length: 8 }, (_, index) => index);
   const rows = [];
-  for (let offset = 0; offset < 8; offset += 1) {
-    const dateValue = addDays(startDate, offset);
+  for (const offset of rowOffsets) {
+    const dateValue = addDays(today, offset);
     const date = parseISODate(dateValue);
-    const cycleIndex = (todayIndex + offset) % state.cycle.length;
+    const cycleIndex = cycleIndexAtOffset(offset);
     const shift = state.cycle[cycleIndex];
     rows.push(`
-      <div class="schedule-row tone-${shift.tone}">
+      <div class="schedule-row tone-${shift.tone}${offset < 0 ? " is-history" : ""}${offset === 0 ? " is-today" : ""}">
         <span class="schedule-date">${formatShortDate(date)} ${formatWeekday(date)}</span>
         <span class="schedule-tone" aria-hidden="true"></span>
         <span class="schedule-name">${escapeHTML(displayShiftName(shift))}${offset === 0 ? escapeHTML(t("cycle.todaySuffix")) : ""}</span>
@@ -1555,8 +1624,13 @@ function renderSchedule() {
   }
 
   elements.scheduleList.innerHTML = rows.join("");
+  elements.scheduleHeading.textContent = t(
+    state.backwardCycle ? "preview.aroundToday" : "preview.nextEight"
+  );
   elements.eventEstimate.textContent = plural("units.events", eventCount);
-  elements.rangeCopy.textContent = t("time.todayRange", { range: formatRange() });
+  elements.rangeCopy.textContent = state.backwardCycle
+    ? formatRange()
+    : t("time.todayRange", { range: formatRange() });
 }
 
 function getValidationErrors() {
@@ -1576,9 +1650,11 @@ function getValidationErrors() {
 }
 
 function updateActionLabels() {
-  const months = coverageMonths();
+  const months = totalCoverageMonths();
   const monthsLabel = plural("units.months", months);
-  elements.coverageBadge.textContent = monthsLabel;
+  elements.coverageBadge.textContent = state.backwardCycle
+    ? t("preview.totalCoverage", { months: monthsLabel })
+    : monthsLabel;
   elements.saveCalendar.hidden = !currentUser;
   elements.saveCalendarLabel.textContent = activeCalendarId ? t("export.saveChanges") : t("export.save");
   elements.primaryActionIcon.innerHTML = icon("link", 18);
@@ -1659,6 +1735,7 @@ function addShift(preset, options = {}) {
     showToast(t("cycle.maxDays"), "error");
     return;
   }
+  const lockedScrollY = pageScrollLocked ? window.scrollY : null;
   const shift = makeShift(preset);
   state.cycle.push(shift);
   selectedShiftId = shift.id;
@@ -1666,6 +1743,12 @@ function addShift(preset, options = {}) {
   updateAllPreview();
   requestAnimationFrame(() => {
     const row = [...elements.cycleList.children].find((item) => item.dataset.id === shift.id);
+    if (lockedScrollY !== null) {
+      if (Math.abs(window.scrollY - lockedScrollY) > 1) {
+        window.scrollTo({ top: lockedScrollY, behavior: "auto" });
+      }
+      return;
+    }
     row?.scrollIntoView({
       block: "nearest",
       behavior: reduceMotionQuery.matches ? "auto" : "smooth"
@@ -1923,6 +2006,35 @@ function errorMessage(error) {
   return translated === `errors.${code}` ? t("errors.generic") : translated;
 }
 
+function loadPageScrollLocked() {
+  try {
+    return localStorage.getItem(PAGE_SCROLL_LOCK_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function syncPageScrollLock() {
+  const label = t(pageScrollLocked ? "builder.unlockPageScroll" : "builder.lockPageScroll");
+  elements.pageScrollLock.setAttribute("aria-pressed", String(pageScrollLocked));
+  elements.pageScrollLock.setAttribute("aria-label", label);
+  elements.pageScrollLock.title = label;
+  elements.pageScrollLockIcon.innerHTML = icon(pageScrollLocked ? "lock" : "lockOpen", 15);
+  document.documentElement.classList.toggle("page-scroll-locked", pageScrollLocked);
+}
+
+function togglePageScrollLock() {
+  pageScrollLocked = !pageScrollLocked;
+  try {
+    localStorage.setItem(PAGE_SCROLL_LOCK_STORAGE_KEY, String(pageScrollLocked));
+  } catch {
+    // Scroll locking still works for the current page when storage is unavailable.
+  }
+  syncPageScrollLock();
+  showToast(t(pageScrollLocked ? "toast.pageScrollLocked" : "toast.pageScrollUnlocked"));
+  navigator.vibrate?.(5);
+}
+
 function syncThemeControls() {
   const dark = document.documentElement.dataset.theme === "dark";
   const iconName = dark ? "sun" : "moon";
@@ -1968,6 +2080,7 @@ function refreshLanguageButton() {
 
 function refreshLocalizedUI() {
   refreshLanguageButton();
+  syncPageScrollLock();
   renderPresets();
   renderShiftSettings();
   renderCycle();
@@ -2474,7 +2587,7 @@ async function persistCalendar() {
       });
 
   activeCalendarId = data.calendar.id;
-  currentLinks = buildLinks(data.calendar.subscriptionPath, coverageMonths());
+  currentLinks = buildLinks(data.calendar.subscriptionPath, totalCoverageMonths());
   elements.linkText.textContent = `${window.location.host}${data.calendar.subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   updateActionLabels();
@@ -2869,6 +2982,16 @@ function renderCalendarList() {
         calendar.plan?.d ?? calendar.plan?.durationMonths,
         DEFAULT_MEMBER_MONTHS
       );
+      const hasBackwardCycle = Boolean(
+        calendar.plan?.b ?? calendar.plan?.backwardCycle
+      );
+      const backwards = hasBackwardCycle
+        ? clampBackwardMonths(
+            calendar.plan?.bm ?? calendar.plan?.backwardMonths,
+            DEFAULT_BACKWARD_MONTHS
+          )
+        : 0;
+      const coverage = plural("units.months", months + backwards);
       const updated = new Date(calendar.updatedAt);
       const updatedCopy = new Intl.DateTimeFormat(getLocale(), {
         month: "numeric",
@@ -2891,7 +3014,7 @@ function renderCalendarList() {
             <h3>${escapeHTML(displayTitle)}</h3>
             <div class="calendar-row-meta">
               <span>${plural("units.dayCycle", cycleLength)}</span>
-              <span>${plural("units.months", months)}</span>
+              <span>${hasBackwardCycle ? t("preview.totalCoverage", { months: coverage }) : coverage}</span>
               <span>${escapeHTML(t("saved.updated", { date: updatedCopy }))}</span>
               <span class="calendar-sequence" aria-hidden="true">${calendarSequence(calendar.plan)}</span>
             </div>
@@ -2941,7 +3064,7 @@ function loadCalendarIntoBuilder(calendar) {
   timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
-  currentLinks = buildLinks(calendar.subscriptionPath, coverageMonths());
+  currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
   renderPresets();
   syncFieldValues();
   renderCycle();
@@ -3399,6 +3522,24 @@ function bindEvents() {
     updateAllPreview();
   });
 
+  elements.backwardCycle.addEventListener("change", () => {
+    state.backwardCycle = elements.backwardCycle.checked;
+    syncBackwardCycleControl();
+    updateAllPreview();
+  });
+
+  elements.backwardMonths.addEventListener("input", () => {
+    if (elements.backwardMonths.value === "") return;
+    state.backwardMonths = clampBackwardMonths(elements.backwardMonths.value);
+    updateAllPreview();
+  });
+
+  elements.backwardMonths.addEventListener("change", () => {
+    state.backwardMonths = clampBackwardMonths(elements.backwardMonths.value);
+    syncBackwardCycleControl();
+    updateAllPreview();
+  });
+
   elements.presetRow.addEventListener("click", (event) => {
     const button = event.target.closest("[data-preset]");
     const preset = button ? getShiftPreset(button.dataset.preset) : null;
@@ -3500,6 +3641,7 @@ function bindEvents() {
     if (currentUser) openAccountDialog();
     else openAuthDialog("login");
   });
+  elements.pageScrollLock.addEventListener("click", togglePageScrollLock);
   elements.languageButton.addEventListener("click", toggleLanguage);
   elements.themeButton.addEventListener("click", toggleTheme);
   elements.timezoneForm.addEventListener("submit", confirmTimezoneSelection);
@@ -3742,6 +3884,7 @@ function bindEvents() {
 
 async function initialize() {
   hydrateStaticIcons();
+  syncPageScrollLock();
   applyTheme(document.documentElement.dataset.theme, { persist: false });
   timezoneConfirmedForLink = getLanguage() !== "en";
   shiftPresets = loadShiftPresets();
