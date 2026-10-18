@@ -17,12 +17,21 @@ export function inferEndDayOffset(start, end) {
 }
 
 export function normalizeEndDayOffset(value, start, end, kind = "work") {
-  if (kind === "off") return 0;
   const offset = Number(value);
   if (Number.isInteger(offset) && offset >= 0 && offset <= MAX_END_DAY_OFFSET) {
     return offset;
   }
+  if (kind === "off") return 0;
   return inferEndDayOffset(start, end);
+}
+
+export function isAllDayRest(shift) {
+  return (
+    shift?.kind === "off" &&
+    shift.start === "00:00" &&
+    shift.end === "00:00" &&
+    Number(shift.endDayOffset ?? 0) === 0
+  );
 }
 
 export function shiftDurationMinutes(shift) {

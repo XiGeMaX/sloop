@@ -24,6 +24,7 @@ import {
 import {
   MAX_END_DAY_OFFSET,
   inferEndDayOffset,
+  isAllDayRest,
   normalizeEndDayOffset,
   shiftDurationMinutes
 } from "./shift-time.js";
@@ -276,6 +277,7 @@ const elements = {
   shiftSettingsDone: document.querySelector("#shiftSettingsDone"),
   shiftPresetList: document.querySelector("#shiftPresetList"),
   addShiftPreset: document.querySelector("#addShiftPreset"),
+  addRestPreset: document.querySelector("#addRestPreset"),
   shiftTimezoneButton: document.querySelector("#shiftTimezoneButton"),
   shiftTimezoneZone: document.querySelector("#shiftTimezoneZone"),
   shiftTimezoneOffset: document.querySelector("#shiftTimezoneOffset"),
@@ -822,7 +824,7 @@ function isOvernightShift(shift) {
 
 function restStartForIndex(index) {
   const shift = state.cycle[index];
-  if (shift?.kind !== "off" || state.cycle.length === 0) return null;
+  if (!isAllDayRest(shift) || state.cycle.length === 0) return null;
   const previous = state.cycle[(index - 1 + state.cycle.length) % state.cycle.length];
   return isOvernightShift(previous) && previous.endDayOffset === 1 ? previous.end : null;
 }
@@ -847,12 +849,44 @@ function restRemainingLabel(time) {
     : t("time.durationHours", { hours });
 }
 
-function shiftTimeLabel(shift, restStart = null) {
-  if (shift.kind === "off") {
-    return restStart ? t("time.restStart", { time: restStart }) : t("time.allDay");
-  }
+function shiftRangeLabel(shift) {
   const dayOffset = shift.endDayOffset > 0 ? `${dayOffsetLabel(shift.endDayOffset)} ` : "";
   return `${shift.start}–${dayOffset}${shift.end}`;
+}
+
+function shiftTimeLabel(shift, restStart = null) {
+  if (shift.kind === "off") {
+    if (!isAllDayRest(shift)) return shiftRangeLabel(shift);
+    return restStart ? t("time.restStart", { time: restStart }) : t("time.allDay");
+  }
+  return shiftRangeLabel(shift);
+}
+
+function restSummaryForIndex(index) {
+  const restStart = restStartForIndex(index);
+  return restStart
+    ? t("cycle.overnightRest", {
+        time: restStart,
+        duration: restRemainingLabel(restStart)
+      })
+    : t("cycle.restNoCalendar");
+}
+
+function mobileRestSummaryForIndex(index) {
+  const shift = state.cycle[index];
+  if (!isAllDayRest(shift)) return shiftTimeLabel(shift);
+  const restStart = restStartForIndex(index);
+  return restStart
+    ? t("cycle.mobileRest", {
+        time: restStart,
+        duration: restRemainingLabel(restStart)
+      })
+    : t("cycle.mobileAllDayRest");
+}
+
+function hasShiftTimingError(shift) {
+  if (shift.kind === "work") return shiftDurationMinutes(shift) <= 0;
+  return !isAllDayRest(shift) && shiftDurationMinutes(shift) <= 0;
 }
 
 function toMinutes(value) {
@@ -874,9 +908,7 @@ function renderPresets() {
           <span class="preset-glyph">${icon(shiftIcon(preset), 16)}</span>
           <span class="preset-copy">
             <strong>${escapeHTML(displayPresetName(preset))}</strong>
-            <small>${
-              preset.kind === "off" ? t("common.allDay") : shiftTimeLabel(preset)
-            }</small>
+            <small>${shiftTimeLabel(preset)}</small>
           </span>
         </button>
       `;
@@ -890,6 +922,8 @@ function renderPresets() {
 function renderShiftSettings() {
   elements.shiftPresetList.innerHTML = shiftPresets
     .map((preset, index) => {
+      const isOff = preset.kind === "off";
+      const allDayRest = isAllDayRest(preset);
       const tones = TONE_ORDER.map(
         (tone) => `
           <button
@@ -904,9 +938,28 @@ function renderShiftSettings() {
           ></button>
         `
       ).join("");
+      const timeFields = `
+        <div class="shift-preset-time">
+          <label>
+            <span>${t("common.start")}</span>
+            <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.startAria", { name: displayPresetName(preset) }))}" />
+          </label>
+          <span aria-hidden="true">→</span>
+          <label class="shift-preset-time-end">
+            <span>${t("common.end")}</span>
+            <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.endAria", { name: displayPresetName(preset) }))}" />
+            <select
+              class="end-day-select"
+              data-preset-field="endDayOffset"
+              data-id="${preset.id}"
+              aria-label="${escapeHTML(t("shiftSettings.endDayAria", { name: displayPresetName(preset) }))}"
+            >${endDayOptions(preset.endDayOffset)}</select>
+          </label>
+        </div>
+      `;
 
       return `
-        <article class="shift-preset-card tone-${preset.tone}" data-id="${preset.id}">
+        <article class="shift-preset-card tone-${preset.tone}${isOff ? " is-off" : ""}" data-id="${preset.id}">
           <div class="shift-preset-card-heading">
             <span class="shift-preset-index">${String(index + 1).padStart(2, "0")}</span>
             <input
@@ -940,29 +993,44 @@ function renderShiftSettings() {
             >${icon(preset.visibleOnHome !== false ? "eye" : "eyeOff", 15)}</button>
             <button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.remove", { name: displayPresetName(preset) }))}">${icon("trash", 15)}</button>
           </div>
-          <div class="shift-preset-time">
+          <div class="shift-preset-mode">
+            <div class="kind-control shift-preset-kind" role="group" aria-label="${escapeHTML(t("shiftSettings.kindAria", { name: displayPresetName(preset) }))}">
+              <button
+                type="button"
+                data-preset-action="kind"
+                data-kind="work"
+                data-id="${preset.id}"
+                aria-pressed="${!isOff}"
+              >${t("common.work")}</button>
+              <button
+                type="button"
+                data-preset-action="kind"
+                data-kind="off"
+                data-id="${preset.id}"
+                aria-pressed="${isOff}"
+              >${t("common.rest")}</button>
+            </div>
             ${
-              preset.kind === "off"
-                ? `<span class="shift-preset-off">${t("shiftSettings.allDayRest")}</span>`
-                : `
-                  <label>
-                    <span>${t("common.start")}</span>
-                    <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.startAria", { name: displayPresetName(preset) }))}" />
-                  </label>
-                  <span aria-hidden="true">→</span>
-                  <label class="shift-preset-time-end">
-                    <span>${t("common.end")}</span>
-                    <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.endAria", { name: displayPresetName(preset) }))}" />
-                    <select
-                      class="end-day-select"
-                      data-preset-field="endDayOffset"
+              isOff
+                ? `
+                  <label class="rest-all-day-control">
+                    <input
+                      type="checkbox"
+                      data-preset-field="allDayRest"
                       data-id="${preset.id}"
-                      aria-label="${escapeHTML(t("shiftSettings.endDayAria", { name: displayPresetName(preset) }))}"
-                    >${endDayOptions(preset.endDayOffset)}</select>
+                      ${allDayRest ? "checked" : ""}
+                    />
+                    <span>${t("shiftSettings.allDayRest")}</span>
                   </label>
                 `
+                : ""
             }
           </div>
+          ${
+            isOff && allDayRest
+              ? `<span class="shift-preset-off">${t("shiftSettings.allDayRestHint")}</span>`
+              : timeFields
+          }
           <div class="shift-preset-tones" role="group" aria-label="${escapeHTML(t("shiftSettings.colors", { name: displayPresetName(preset) }))}">
             ${tones}
           </div>
@@ -1007,19 +1075,20 @@ function updateShiftPreset(id, patch) {
   return preset;
 }
 
-function addCustomShiftPreset() {
+function addCustomShiftPreset(kind = "work") {
   if (shiftPresets.length >= MAX_SHIFT_PRESETS) {
     showToast(t("shiftSettings.tooMany"), "error");
     return;
   }
+  const isOff = kind === "off";
   const preset = {
     id: `custom-${makeId()}`,
-    kind: "work",
-    name: t("default.customShift"),
-    start: "09:00",
-    end: "18:00",
+    kind: isOff ? "off" : "work",
+    name: t(isOff ? "shiftSettings.customRest" : "default.customShift"),
+    start: isOff ? "00:00" : "09:00",
+    end: isOff ? "00:00" : "18:00",
     endDayOffset: 0,
-    tone: "coral",
+    tone: isOff ? "sage" : "coral",
     visibleOnHome: true,
     removable: true
   };
@@ -1035,6 +1104,33 @@ function addCustomShiftPreset() {
     input?.select();
     input?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
+}
+
+function changeShiftPresetKind(id, kind) {
+  const preset = getShiftPreset(id);
+  if (!preset || preset.kind === kind || !["work", "off"].includes(kind)) return;
+  const isOff = kind === "off";
+  updateShiftPreset(id, {
+    kind,
+    name: t(isOff ? "preset.rest" : "preset.day"),
+    start: isOff ? "00:00" : "08:00",
+    end: isOff ? "00:00" : "20:00",
+    endDayOffset: 0,
+    tone: isOff ? "sage" : "sky"
+  });
+  renderShiftSettings();
+}
+
+function setShiftPresetAllDayRest(id, allDayRest) {
+  const preset = getShiftPreset(id);
+  if (!preset || preset.kind !== "off") return;
+  updateShiftPreset(
+    id,
+    allDayRest
+      ? { start: "00:00", end: "00:00", endDayOffset: 0 }
+      : { start: "00:00", end: "00:00", endDayOffset: 1 }
+  );
+  renderShiftSettings();
 }
 
 async function removeShiftPreset(id) {
@@ -1090,16 +1186,46 @@ function toggleShiftPresetVisibility(id) {
   }
 }
 
+function cycleTimeFields(shift, index) {
+  return `
+    <div class="time-fields">
+      <label class="time-input">
+        <span>${t("common.start")}</span>
+        <input
+          type="time"
+          value="${shift.start}"
+          data-field="start"
+          aria-label="${escapeHTML(t("cycle.startAria", { index: index + 1 }))}"
+        />
+      </label>
+      <span class="time-arrow" aria-hidden="true">→</span>
+      <label class="time-input time-input-end">
+        <span>${t("common.end")}</span>
+        <input
+          type="time"
+          value="${shift.end}"
+          data-field="end"
+          aria-label="${escapeHTML(t("cycle.endAria", { index: index + 1 }))}"
+        />
+        <select
+          class="end-day-select"
+          data-field="endDayOffset"
+          aria-label="${escapeHTML(t("cycle.endDayAria", { index: index + 1 }))}"
+        >${endDayOptions(shift.endDayOffset)}</select>
+      </label>
+    </div>
+  `;
+}
+
 function renderCycle(options = {}) {
   elements.cycleList.innerHTML = state.cycle
     .map((shift, index) => {
-      const hasError =
-        shift.kind === "work" &&
-        (shiftDurationMinutes(shift) <= 0 || !shift.name.trim());
+      const hasError = hasShiftTimingError(shift) || !shift.name.trim();
       const isToday = shift.id === state.todayId;
+      const allDayRest = isAllDayRest(shift);
       return `
         <article
-          class="cycle-item tone-${shift.tone}${shift.kind === "off" ? " is-off" : ""}${hasError ? " has-error" : ""}${isToday ? " is-today" : ""}"
+          class="cycle-item tone-${shift.tone}${allDayRest ? " is-all-day-off" : shift.kind === "off" ? " is-timed-off" : ""}${hasError ? " has-error" : ""}${isToday ? " is-today" : ""}"
           data-id="${shift.id}"
           data-index="${index}"
         >
@@ -1153,40 +1279,27 @@ function renderCycle(options = {}) {
             </div>
           </div>
 
-          <div class="time-fields">
-            <label class="time-input">
-              <span>${t("common.start")}</span>
-              <input
-                type="time"
-                value="${shift.start}"
-                data-field="start"
-                aria-label="${escapeHTML(t("cycle.startAria", { index: index + 1 }))}"
-              />
-            </label>
-            <span class="time-arrow" aria-hidden="true">→</span>
-            <label class="time-input time-input-end">
-              <span>${t("common.end")}</span>
-              <input
-                type="time"
-                value="${shift.end}"
-                data-field="end"
-                aria-label="${escapeHTML(t("cycle.endAria", { index: index + 1 }))}"
-              />
-              <select
-                class="end-day-select"
-                data-field="endDayOffset"
-                aria-label="${escapeHTML(t("cycle.endDayAria", { index: index + 1 }))}"
-              >${endDayOptions(shift.endDayOffset)}</select>
-            </label>
-          </div>
-            <span class="off-label">${
-              restStartForIndex(index)
-                ? t("cycle.overnightRest", {
-                    time: restStartForIndex(index),
-                    duration: restRemainingLabel(restStartForIndex(index))
-                  })
-                : t("cycle.restNoCalendar")
-            }</span>
+          ${
+            shift.kind === "off"
+              ? `
+                <div class="rest-time-editor">
+                  <label class="rest-all-day-control">
+                    <input
+                      type="checkbox"
+                      data-field="allDayRest"
+                      ${allDayRest ? "checked" : ""}
+                    />
+                    <span>${t("shiftSettings.allDayRest")}</span>
+                  </label>
+                  ${
+                    allDayRest
+                      ? `<span class="off-label">${restSummaryForIndex(index)}</span>`
+                      : cycleTimeFields(shift, index)
+                  }
+                </div>
+              `
+              : cycleTimeFields(shift, index)
+          }
 
           <button class="remove-button" type="button" data-action="remove" aria-label="${escapeHTML(t("cycle.removeAria", { index: index + 1 }))}">
             ${icon("trash", 15)}
@@ -1327,14 +1440,7 @@ function renderMobileCycle() {
           <span class="mobile-chip-copy">
             <strong data-mobile-chip-name>${escapeHTML(displayShiftName(shift))}</strong>
             <small data-mobile-chip-time>${
-              shift.kind === "off"
-                ? restStartForIndex(index)
-                  ? t("cycle.mobileRest", {
-                      time: restStartForIndex(index),
-                      duration: restRemainingLabel(restStartForIndex(index))
-                    })
-                  : t("cycle.mobileAllDayRest")
-                : shiftTimeLabel(shift)
+              shift.kind === "off" ? mobileRestSummaryForIndex(index) : shiftTimeLabel(shift)
             }</small>
           </span>
         </button>
@@ -1459,7 +1565,7 @@ function getValidationErrors() {
   if (!state.cycle.length) errors.push(t("validation.cycle"));
   for (const [index, shift] of state.cycle.entries()) {
     if (!shift.name.trim()) errors.push(t("validation.shiftName", { index: index + 1 }));
-    if (shift.kind === "work" && shiftDurationMinutes(shift) <= 0) {
+    if (hasShiftTimingError(shift)) {
       errors.push(t("validation.shiftTimes", { index: index + 1 }));
     }
   }
@@ -1502,10 +1608,7 @@ function updateRowErrors() {
   for (const row of elements.cycleList.children) {
     const index = Number(row.dataset.index);
     const shift = state.cycle[index];
-    const hasError =
-      shift &&
-      shift.kind === "work" &&
-      (shiftDurationMinutes(shift) <= 0 || !shift.name.trim());
+    const hasError = shift && (hasShiftTimingError(shift) || !shift.name.trim());
     row.classList.toggle("has-error", Boolean(hasError));
   }
 }
@@ -3325,6 +3428,14 @@ function bindEvents() {
     const shift = state.cycle.find((item) => item.id === row.dataset.id);
     if (!shift) return;
     detachShiftFromPreset(shift);
+    if (input.dataset.field === "allDayRest") {
+      shift.start = "00:00";
+      shift.end = "00:00";
+      shift.endDayOffset = input.checked ? 0 : 1;
+      renderCycle();
+      updateAllPreview();
+      return;
+    }
     if (input.dataset.field === "endDayOffset") {
       shift.endDayOffset = normalizeEndDayOffset(
         input.value,
@@ -3428,7 +3539,8 @@ function bindEvents() {
   elements.shiftSettingsDialog.addEventListener("click", (event) => {
     if (event.target === elements.shiftSettingsDialog) closeShiftSettings();
   });
-  elements.addShiftPreset.addEventListener("click", addCustomShiftPreset);
+  elements.addShiftPreset.addEventListener("click", () => addCustomShiftPreset("work"));
+  elements.addRestPreset.addEventListener("click", () => addCustomShiftPreset("off"));
   elements.shiftPresetList.addEventListener("input", (event) => {
     const input = event.target.closest("[data-preset-field]");
     if (!input || input.dataset.presetField !== "name") return;
@@ -3444,9 +3556,13 @@ function bindEvents() {
     if (input.dataset.presetField === "name") {
       const name =
         cleanText(preset.name, 28) ||
-        (preset.kind === "off" ? t("preset.rest") : t("common.rest"));
+        (preset.kind === "off" ? t("preset.rest") : t("default.customShift"));
       input.value = name;
       updateShiftPreset(preset.id, { name });
+      return;
+    }
+    if (input.dataset.presetField === "allDayRest") {
+      setShiftPresetAllDayRest(preset.id, input.checked);
       return;
     }
     if (input.dataset.presetField === "endDayOffset") {
@@ -3526,6 +3642,9 @@ function bindEvents() {
         );
         if (activePalette) activePalette.scrollLeft = paletteScrollLeft;
       }, 0);
+    }
+    if (action.dataset.presetAction === "kind") {
+      changeShiftPresetKind(action.dataset.id, action.dataset.kind);
     }
     if (action.dataset.presetAction === "remove") removeShiftPreset(action.dataset.id);
     if (action.dataset.presetAction === "visibility") {

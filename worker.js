@@ -1,5 +1,6 @@
 import { DEFAULT_TIMEZONE, normalizeTimeZone } from "./public/timezone.js";
 import {
+  isAllDayRest,
   normalizeEndDayOffset,
   shiftDurationMinutes
 } from "./public/shift-time.js";
@@ -163,9 +164,15 @@ function normalizePlan(raw) {
     const tone = Object.hasOwn(TONES, toneValue) ? toneValue : "sky";
     const presetId = cleanText(item?.p ?? item?.presetId, 80) || null;
 
+    const timedShift = {
+      kind,
+      start: startTime,
+      end: endTime,
+      endDayOffset
+    };
     if (
-      kind === "work" &&
-      shiftDurationMinutes({ start: startTime, end: endTime, endDayOffset }) <= 0
+      (kind === "work" || !isAllDayRest(timedShift)) &&
+      shiftDurationMinutes(timedShift) <= 0
     ) {
       throw new ApiError(400, "shift_times_match");
     }
@@ -220,7 +227,11 @@ function normalizeShiftLibrary(raw) {
     const start = cleanTime(item.start, kind === "off" ? "00:00" : "09:00");
     const end = cleanTime(item.end, kind === "off" ? "00:00" : "18:00");
     const endDayOffset = normalizeEndDayOffset(item.endDayOffset, start, end, kind);
-    if (kind === "work" && shiftDurationMinutes({ start, end, endDayOffset }) <= 0) {
+    const timedShift = { kind, start, end, endDayOffset };
+    if (
+      (kind === "work" || !isAllDayRest(timedShift)) &&
+      shiftDurationMinutes(timedShift) <= 0
+    ) {
       throw new ApiError(400, "invalid_shift_library");
     }
     const toneValue = String(item.tone ?? (kind === "off" ? "sage" : "sky"));
@@ -544,34 +555,58 @@ function buildCalendar(planInput, options = {}) {
     lines.push(`X-SLOOP-END-DAY-OFFSET:${shift.endDayOffset}`);
 
     if (shift.kind === "off") {
-      const previousOvernight =
-        previousShift.kind === "work" &&
-        previousShift.endDayOffset === 1;
+      if (isAllDayRest(shift)) {
+        const previousOvernight =
+          previousShift.kind === "work" &&
+          previousShift.endDayOffset === 1;
 
-      if (previousOvernight) {
-        const [restHour, restMinute] = previousShift.end.split(":").map(Number);
-        const restEnd = addUtcDays(date, 1);
-        const restStartUtc = localDateTimeToUtc(
+        if (previousOvernight) {
+          const [restHour, restMinute] = previousShift.end.split(":").map(Number);
+          const restEnd = addUtcDays(date, 1);
+          const restStartUtc = localDateTimeToUtc(
+            year,
+            month,
+            day,
+            restHour,
+            restMinute,
+            plan.timezone
+          );
+          const restEndUtc = localDateTimeToUtc(
+            restEnd.getUTCFullYear(),
+            restEnd.getUTCMonth() + 1,
+            restEnd.getUTCDate(),
+            restHour,
+            restMinute,
+            plan.timezone
+          );
+          lines.push(`DTSTART:${formatIcsUtc(restStartUtc)}`);
+          lines.push(`DTEND:${formatIcsUtc(restEndUtc)}`);
+        } else {
+          lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(date)}`);
+          lines.push(`DTEND;VALUE=DATE:${formatIcsDate(addUtcDays(date, 1))}`);
+        }
+      } else {
+        const [startHour, startMinute] = shift.start.split(":").map(Number);
+        const [endHour, endMinute] = shift.end.split(":").map(Number);
+        const endDate = addUtcDays(date, shift.endDayOffset);
+        const startUtc = localDateTimeToUtc(
           year,
           month,
           day,
-          restHour,
-          restMinute,
+          startHour,
+          startMinute,
           plan.timezone
         );
-        const restEndUtc = localDateTimeToUtc(
-          restEnd.getUTCFullYear(),
-          restEnd.getUTCMonth() + 1,
-          restEnd.getUTCDate(),
-          restHour,
-          restMinute,
+        const endUtc = localDateTimeToUtc(
+          endDate.getUTCFullYear(),
+          endDate.getUTCMonth() + 1,
+          endDate.getUTCDate(),
+          endHour,
+          endMinute,
           plan.timezone
         );
-        lines.push(`DTSTART:${formatIcsUtc(restStartUtc)}`);
-        lines.push(`DTEND:${formatIcsUtc(restEndUtc)}`);
-      } else {
-        lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(date)}`);
-        lines.push(`DTEND;VALUE=DATE:${formatIcsDate(addUtcDays(date, 1))}`);
+        lines.push(`DTSTART:${formatIcsUtc(startUtc)}`);
+        lines.push(`DTEND:${formatIcsUtc(endUtc)}`);
       }
       lines.push("TRANSP:TRANSPARENT");
       lines.push(`COLOR:${TONES[shift.tone]}`);

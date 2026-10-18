@@ -492,6 +492,15 @@ test("stores each user's shift library and restores it on the next request", asy
       endDayOffset: 1,
       tone: "coral",
       visibleOnHome: false
+    },
+    {
+      id: "custom-rest",
+      kind: "off",
+      name: "定时休息",
+      start: "20:00",
+      end: "08:00",
+      endDayOffset: 1,
+      tone: "sage"
     }
   ];
   const saved = await worker.fetch(
@@ -503,6 +512,8 @@ test("stores each user's shift library and restores it on the next request", asy
   assert.equal(savedData.presets[0].removable, true);
   assert.equal(savedData.presets[1].endDayOffset, 1);
   assert.equal(savedData.presets[1].visibleOnHome, false);
+  assert.equal(savedData.presets[2].kind, "off");
+  assert.equal(savedData.presets[2].endDayOffset, 1);
   assert.equal(shiftLibraries.has("member-1"), true);
 
   const restored = await worker.fetch(
@@ -513,6 +524,8 @@ test("stores each user's shift library and restores it on the next request", asy
   const data = await restored.json();
   assert.equal(data.presets[0].id, "day");
   assert.equal(data.presets[1].name, "24 小时");
+  assert.equal(data.presets[2].start, "20:00");
+  assert.equal(data.presets[2].end, "08:00");
 });
 
 test("rejects a password change when the current password is wrong", async () => {
@@ -687,6 +700,28 @@ test("keeps regular rest days as all-day events", () => {
   );
   assert.match(calendar, /DTSTART;VALUE=DATE:20261019/);
   assert.match(calendar, /DTEND;VALUE=DATE:20261020/);
+});
+
+test("supports timed rest windows without marking them busy", () => {
+  const plan = normalizePlan({
+    ...samplePlan,
+    i: 0,
+    r: 1,
+    c: [["o", "定时休息", "20:00", "08:00", "sage", "", 1]]
+  });
+
+  assert.equal(plan.cycle[0].endDayOffset, 1);
+
+  const calendar = buildCalendar(plan, {
+    startDate: "2026-10-18",
+    months: 1,
+    now: testNow
+  });
+
+  assert.match(calendar, /SUMMARY:定时休息/);
+  assert.match(calendar, /DTSTART:20261018T120000Z\r\nDTEND:20261019T000000Z/);
+  assert.match(calendar, /TRANSP:TRANSPARENT/);
+  assert.doesNotMatch(calendar, /DTSTART;VALUE=DATE:20261018/);
 });
 
 test("applies timezone daylight-saving offsets per event date", () => {

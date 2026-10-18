@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   inferEndDayOffset,
+  isAllDayRest,
   normalizeEndDayOffset,
   shiftDurationMinutes
 } from "../public/shift-time.js";
@@ -13,6 +14,23 @@ test("infers cross-midnight shifts and preserves explicit day offsets", () => {
   assert.equal(normalizeEndDayOffset(undefined, "20:00", "08:00"), 1);
   assert.equal(normalizeEndDayOffset(0, "09:00", "09:00"), 0);
   assert.equal(normalizeEndDayOffset(2, "09:00", "09:00"), 2);
+  assert.equal(normalizeEndDayOffset(undefined, "00:00", "00:00", "off"), 0);
+  assert.equal(normalizeEndDayOffset(1, "00:00", "00:00", "off"), 1);
+});
+
+test("distinguishes all-day rest from a timed rest window", () => {
+  assert.equal(
+    isAllDayRest({ kind: "off", start: "00:00", end: "00:00", endDayOffset: 0 }),
+    true
+  );
+  assert.equal(
+    isAllDayRest({ kind: "off", start: "00:00", end: "00:00", endDayOffset: 1 }),
+    false
+  );
+  assert.equal(
+    isAllDayRest({ kind: "off", start: "20:00", end: "08:00", endDayOffset: 1 }),
+    false
+  );
 });
 
 test("calculates 24-hour and multi-day shift durations", () => {

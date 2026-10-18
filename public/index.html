@@ -754,10 +754,16 @@
         </div>
       </div>
       <div class="shift-preset-list" id="shiftPresetList"></div>
-      <button class="shift-preset-add" id="addShiftPreset" type="button">
-        <span data-icon="plus" aria-hidden="true"></span>
-        <span data-i18n="shiftSettings.add">添加自定义班次</span>
-      </button>
+      <div class="shift-preset-add-row">
+        <button class="shift-preset-add" id="addShiftPreset" type="button">
+          <span data-icon="sun" aria-hidden="true"></span>
+          <span data-i18n="shiftSettings.addWork">添加工作班次</span>
+        </button>
+        <button class="shift-preset-add" id="addRestPreset" type="button">
+          <span data-icon="coffee" aria-hidden="true"></span>
+          <span data-i18n="shiftSettings.addRest">添加休息班次</span>
+        </button>
+      </div>
       <button
         class="view-primary shift-settings-done"
         id="shiftSettingsDone"
