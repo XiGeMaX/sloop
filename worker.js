@@ -10,6 +10,9 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 const GUEST_LINK_TTL_SECONDS = 60 * 60 * 24 * 7;
 const MAX_ACTIVE_GUEST_SUBSCRIPTIONS = 10000;
 const MAX_CALENDARS_PER_USER = 50;
+const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
+const BACKUP_FORMAT = "sloop-backup";
+const BACKUP_VERSION = 1;
 const PASSWORD_ITERATIONS = 210000;
 const SESSION_COOKIE = "sloop_session";
 const TONES = {
@@ -630,14 +633,19 @@ function emptyResponse(status = 204, extraHeaders = {}) {
   return new Response(null, { status, headers: extraHeaders });
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = 64000) {
   const contentLength = Number(request.headers.get("Content-Length") || 0);
-  if (contentLength > 64000) throw new ApiError(413, "request_too_large");
+  if (contentLength > maxBytes) throw new ApiError(413, "request_too_large");
   try {
-    const value = await request.json();
+    const text = await request.text();
+    if (textEncoder.encode(text).byteLength > maxBytes) {
+      throw new ApiError(413, "request_too_large");
+    }
+    const value = JSON.parse(text);
     if (!value || typeof value !== "object") throw new Error("invalid");
     return value;
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(400, "invalid_json");
   }
 }
@@ -1010,6 +1018,351 @@ async function resetUserPassword(request, env, userId) {
   await db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(target.id).run();
 
   return emptyResponse();
+}
+
+function invalidBackup() {
+  return new ApiError(400, "invalid_backup");
+}
+
+function normalizeBackupId(value) {
+  const id = String(value ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw invalidBackup();
+  return id;
+}
+
+function normalizeBackupTimestamp(value, nullable = false) {
+  if (value == null || value === "") {
+    if (nullable) return null;
+    throw invalidBackup();
+  }
+  const timestamp = Date.parse(String(value));
+  if (!Number.isFinite(timestamp)) throw invalidBackup();
+  return new Date(timestamp).toISOString();
+}
+
+function normalizeBackupPasswordPart(value, expectedBytes) {
+  const encoded = String(value ?? "");
+  try {
+    if (
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
+      fromBase64(encoded).byteLength !== expectedBytes
+    ) {
+      throw invalidBackup();
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw invalidBackup();
+  }
+  return encoded;
+}
+
+function normalizeBackupInteger(value, min, max, nullable = false) {
+  if ((value == null || value === "") && nullable) return null;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) throw invalidBackup();
+  return number;
+}
+
+function normalizeBackupFlag(value) {
+  if (value === true || value === 1 || value === "1") return 1;
+  if (value === false || value === 0 || value === "0") return 0;
+  throw invalidBackup();
+}
+
+function normalizeBackupUser(source) {
+  if (!source || typeof source !== "object") throw invalidBackup();
+  let username;
+  let nickname;
+  try {
+    username = normalizeUsername(source.username);
+    nickname = normalizeNickname(source.nickname);
+  } catch {
+    throw invalidBackup();
+  }
+  const role = source.role;
+  const status = source.status;
+  if (!["admin", "user"].includes(role)) throw invalidBackup();
+  if (!["pending", "approved", "rejected", "disabled"].includes(status)) {
+    throw invalidBackup();
+  }
+  return {
+    id: normalizeBackupId(source.id),
+    username,
+    nickname,
+    passwordHash: normalizeBackupPasswordPart(source.passwordHash, 32),
+    passwordSalt: normalizeBackupPasswordPart(source.passwordSalt, 16),
+    role,
+    status,
+    inviteCode: source.inviteCode ? cleanText(source.inviteCode, 32) || null : null,
+    createdAt: normalizeBackupTimestamp(source.createdAt),
+    approvedAt: normalizeBackupTimestamp(source.approvedAt, true),
+    approvedBy: source.approvedBy ? normalizeBackupId(source.approvedBy) : null
+  };
+}
+
+function normalizeBackupInvite(source) {
+  if (!source || typeof source !== "object") throw invalidBackup();
+  const code = cleanText(source.code, 32).toLocaleUpperCase("en-US");
+  if (!/^[\p{L}\p{N}_-]{4,32}$/u.test(code)) throw invalidBackup();
+  const maxUses = normalizeBackupInteger(source.maxUses, 1, 100);
+  return {
+    id: normalizeBackupId(source.id),
+    code,
+    createdBy: normalizeBackupId(source.createdBy),
+    maxUses,
+    uses: normalizeBackupInteger(source.uses, 0, maxUses),
+    expiresAt: normalizeBackupInteger(source.expiresAt, 0, 9999999999, true),
+    disabled: normalizeBackupFlag(source.disabled),
+    createdAt: normalizeBackupTimestamp(source.createdAt)
+  };
+}
+
+function normalizeBackupCalendar(source) {
+  if (!source || typeof source !== "object") throw invalidBackup();
+  let plan;
+  try {
+    plan = normalizePlan(source.plan);
+  } catch {
+    throw invalidBackup();
+  }
+  const title = cleanText(source.title, 64) || plan.title;
+  plan.title = title;
+  return {
+    id: normalizeBackupId(source.id),
+    userId: normalizeBackupId(source.userId),
+    title,
+    plan,
+    shareSlug: normalizeBackupId(source.shareSlug),
+    createdAt: normalizeBackupTimestamp(source.createdAt),
+    updatedAt: normalizeBackupTimestamp(source.updatedAt)
+  };
+}
+
+function normalizeBackupSnapshot(source) {
+  if (
+    !source ||
+    typeof source !== "object" ||
+    source.format !== BACKUP_FORMAT ||
+    Number(source.version) !== BACKUP_VERSION ||
+    !source.data ||
+    typeof source.data !== "object"
+  ) {
+    throw invalidBackup();
+  }
+  const { users: sourceUsers, invites: sourceInvites, calendars: sourceCalendars } = source.data;
+  if (
+    !Array.isArray(sourceUsers) ||
+    !Array.isArray(sourceInvites) ||
+    !Array.isArray(sourceCalendars) ||
+    sourceUsers.length > 10000 ||
+    sourceInvites.length > 10000 ||
+    sourceCalendars.length > 50000
+  ) {
+    throw invalidBackup();
+  }
+
+  const users = sourceUsers.map(normalizeBackupUser);
+  const invites = sourceInvites.map(normalizeBackupInvite);
+  const calendars = sourceCalendars.map(normalizeBackupCalendar);
+  const userIds = new Set(users.map((user) => user.id));
+  const usernames = new Set(users.map((user) => user.username));
+  const inviteIds = new Set(invites.map((invite) => invite.id));
+  const inviteCodes = new Set(invites.map((invite) => invite.code));
+  const calendarIds = new Set(calendars.map((calendar) => calendar.id));
+  const calendarSlugs = new Set(calendars.map((calendar) => calendar.shareSlug));
+
+  if (
+    !users.some((user) => user.role === "admin" && user.status === "approved") ||
+    userIds.size !== users.length ||
+    usernames.size !== users.length ||
+    inviteIds.size !== invites.length ||
+    inviteCodes.size !== invites.length ||
+    calendarIds.size !== calendars.length ||
+    calendarSlugs.size !== calendars.length ||
+    invites.some((invite) => !userIds.has(invite.createdBy)) ||
+    calendars.some((calendar) => !userIds.has(calendar.userId))
+  ) {
+    throw invalidBackup();
+  }
+
+  return {
+    counts: {
+      users: users.length,
+      invites: invites.length,
+      calendars: calendars.length
+    },
+    data: {
+      users,
+      invites,
+      calendars
+    }
+  };
+}
+
+async function exportBackup(request, env) {
+  await requireAdmin(request, env);
+  const db = requireDatabase(env);
+  const [userRows, inviteRows, calendarRows] = await Promise.all([
+    db.prepare("SELECT * FROM users ORDER BY created_at, id").all(),
+    db.prepare("SELECT * FROM invites ORDER BY created_at, id").all(),
+    db.prepare("SELECT * FROM calendars ORDER BY created_at, id").all()
+  ]);
+  const users = (userRows.results || []).map((row) => ({
+    id: row.id,
+    username: row.username,
+    nickname: row.nickname,
+    passwordHash: row.password_hash,
+    passwordSalt: row.password_salt,
+    role: row.role,
+    status: row.status,
+    inviteCode: row.invite_code,
+    createdAt: row.created_at,
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by
+  }));
+  const invites = (inviteRows.results || []).map((row) => ({
+    id: row.id,
+    code: row.code,
+    createdBy: row.created_by,
+    maxUses: Number(row.max_uses),
+    uses: Number(row.uses),
+    expiresAt: row.expires_at,
+    disabled: Number(row.disabled),
+    createdAt: row.created_at
+  }));
+  const calendars = (calendarRows.results || []).map((row) => {
+    let plan = null;
+    try {
+      plan = JSON.parse(row.plan_json);
+    } catch {
+      plan = null;
+    }
+    return {
+      id: row.id,
+      userId: row.user_id,
+      title: row.title,
+      plan,
+      shareSlug: row.share_slug,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  });
+  const exportedAt = new Date().toISOString();
+
+  return jsonResponse(
+    {
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      exportedAt,
+      counts: {
+        users: users.length,
+        invites: invites.length,
+        calendars: calendars.length
+      },
+      data: {
+        users,
+        invites,
+        calendars
+      }
+    },
+    200,
+    {
+      "Content-Disposition":
+        `attachment; filename="sloop-backup-${exportedAt.slice(0, 10)}.json"`
+    }
+  );
+}
+
+async function importBackup(request, env) {
+  await requireAdmin(request, env);
+  const snapshot = normalizeBackupSnapshot(await readJson(request, MAX_BACKUP_BYTES));
+  const db = requireDatabase(env);
+  const statements = [
+    db.prepare("DELETE FROM guest_subscriptions"),
+    db.prepare("DELETE FROM sessions"),
+    db.prepare("DELETE FROM calendars"),
+    db.prepare("DELETE FROM invites"),
+    db.prepare("DELETE FROM users")
+  ];
+
+  for (const user of snapshot.data.users) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO users
+           (id, username, nickname, password_hash, password_salt, role, status, invite_code,
+            created_at, approved_at, approved_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          user.id,
+          user.username,
+          user.nickname,
+          user.passwordHash,
+          user.passwordSalt,
+          user.role,
+          user.status,
+          user.inviteCode,
+          user.createdAt,
+          user.approvedAt,
+          user.approvedBy
+        )
+    );
+  }
+
+  for (const invite of snapshot.data.invites) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO invites
+           (id, code, created_by, max_uses, uses, expires_at, disabled, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          invite.id,
+          invite.code,
+          invite.createdBy,
+          invite.maxUses,
+          invite.uses,
+          invite.expiresAt,
+          invite.disabled,
+          invite.createdAt
+        )
+    );
+  }
+
+  for (const calendar of snapshot.data.calendars) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO calendars
+           (id, user_id, title, plan_json, share_slug, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          calendar.id,
+          calendar.userId,
+          calendar.title,
+          JSON.stringify(calendar.plan),
+          calendar.shareSlug,
+          calendar.createdAt,
+          calendar.updatedAt
+        )
+    );
+  }
+
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    console.error("backup_import_failed", error);
+    throw invalidBackup();
+  }
+
+  return jsonResponse({
+    ok: true,
+    imported: snapshot.counts,
+    sessionsRevoked: true
+  });
 }
 
 function randomInviteCode() {
@@ -1531,6 +1884,9 @@ async function handleApiRequest(request, env) {
   }
   const userMatch = /^\/api\/admin\/users\/([^/]+)$/.exec(path);
   if (userMatch && method === "PATCH") return updateUser(request, env, userMatch[1]);
+
+  if (path === "/api/admin/backup" && method === "GET") return exportBackup(request, env);
+  if (path === "/api/admin/backup" && method === "POST") return importBackup(request, env);
 
   if (path === "/api/admin/invites" && method === "GET") return listInvites(request, env);
   if (path === "/api/admin/invites" && method === "POST") return createInvite(request, env);

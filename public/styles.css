@@ -132,7 +132,8 @@ svg {
 }
 
 .nav-button,
-.account-button {
+.account-button,
+.language-button {
   min-height: 38px;
   border: 0;
   border-radius: 7px;
@@ -207,6 +208,24 @@ svg {
 .account-copy small {
   color: var(--muted);
   font-size: 0.61rem;
+}
+
+.language-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  gap: 5px;
+  margin-left: 2px;
+  padding: 0 8px;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.language-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .brand {
@@ -1811,6 +1830,115 @@ h2 {
   gap: 36px;
 }
 
+.backup-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.backup-block {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  background: var(--surface-quiet);
+}
+
+.backup-block-heading {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.backup-block-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface-solid);
+  place-items: center;
+}
+
+.backup-block-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.backup-block-heading h3 {
+  margin: 1px 0 5px;
+  font-size: 0.9rem;
+}
+
+.backup-block-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.67rem;
+  line-height: 1.55;
+}
+
+.backup-import-form {
+  display: grid;
+  gap: 10px;
+}
+
+.backup-action {
+  width: 100%;
+}
+
+.backup-file-picker {
+  position: relative;
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface-solid);
+  font-size: 0.72rem;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.backup-file-picker:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 78%, transparent);
+  outline-offset: 2px;
+}
+
+.backup-file-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.backup-file-picker svg {
+  width: 16px;
+  height: 16px;
+}
+
+.backup-file-picker span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-security-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.6;
+}
+
 .invite-form {
   display: grid;
   align-content: start;
@@ -2993,6 +3121,10 @@ h2 {
     grid-template-columns: 1fr;
     gap: 28px;
   }
+
+  .backup-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 650px) {
@@ -3018,6 +3150,11 @@ h2 {
   .account-button {
     min-width: 36px;
     padding: 3px;
+  }
+
+  .language-button {
+    min-width: 44px;
+    padding: 0 6px;
   }
 
   .account-avatar {
@@ -3087,7 +3224,7 @@ h2 {
   .admin-tabs {
     display: grid;
     width: 100%;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .admin-tabs button {
@@ -3110,6 +3247,10 @@ h2 {
   }
 
   .invite-form {
+    padding: 15px;
+  }
+
+  .backup-block {
     padding: 15px;
   }
 
@@ -3175,7 +3316,8 @@ h2 {
   }
 
   .nav-button:hover,
-  .account-button:hover {
+  .account-button:hover,
+  .language-button:hover {
     background: color-mix(in srgb, var(--ink) 6%, transparent);
   }
 
@@ -3342,8 +3484,10 @@ h2 {
     border-bottom: 1px solid var(--hairline);
     overscroll-behavior-x: contain;
     scroll-snap-type: x proximity;
+    scroll-padding-inline: 10px;
     scrollbar-width: none;
-    touch-action: pan-x;
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
   }
 
   .mobile-cycle-strip::-webkit-scrollbar {
@@ -3365,7 +3509,9 @@ h2 {
     background: var(--surface-quiet);
     text-align: left;
     scroll-snap-align: center;
+    scroll-snap-stop: normal;
     cursor: pointer;
+    -webkit-touch-callout: none;
     transition:
       border-color 120ms ease,
       background-color 120ms ease,
@@ -3373,7 +3519,10 @@ h2 {
   }
 
   .mobile-cycle-chip:active {
-    transform: scale(0.97);
+    border-color: var(--hairline-strong);
+    background: color-mix(in srgb, var(--tone) 13%, var(--surface-solid));
+    transform: scale(0.965);
+    transition-duration: 70ms;
   }
 
   .mobile-cycle-chip.is-selected {
@@ -3386,6 +3535,10 @@ h2 {
     box-shadow:
       inset 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent),
       inset 0 3px 0 var(--accent);
+  }
+
+  .mobile-cycle-chip.is-selected:active {
+    transform: scale(0.985);
   }
 
   .mobile-chip-index {
@@ -3562,6 +3715,16 @@ h2 {
   .builder-footer .switch-row {
     min-width: 190px;
     flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-cycle-strip {
+    scroll-behavior: auto;
+  }
+
+  .mobile-cycle-chip {
+    transition: none;
   }
 }
 

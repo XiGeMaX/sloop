@@ -1,9 +1,20 @@
+import {
+  applyStaticTranslations,
+  getLanguage,
+  getLocale,
+  initializeLanguage,
+  plural,
+  setLanguage,
+  t
+} from "./i18n.js";
+
 const STORAGE_KEY = "sloop.plan.v2";
 const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
 const TIMEZONE = "Asia/Shanghai";
 const GUEST_EXPORT_MONTHS = 6;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
+const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const TONE_ORDER = [
   "sky",
   "indigo",
@@ -18,46 +29,41 @@ const TONE_ORDER = [
   "slate",
   "berry"
 ];
-const TONE_NAMES = {
-  sky: "天蓝",
-  indigo: "靛蓝",
-  sage: "鼠尾草",
-  sun: "暖黄",
-  coral: "珊瑚",
-  rose: "玫瑰",
-  teal: "青碧",
-  lime: "青柠",
-  plum: "梅紫",
-  clay: "陶土",
-  slate: "岩蓝",
-  berry: "莓红"
-};
-const DEFAULT_SHIFT_PRESETS = [
-  {
-    id: "day",
-    kind: "work",
-    name: "白班",
-    start: "08:00",
-    end: "20:00",
-    tone: "sky"
-  },
-  {
-    id: "night",
-    kind: "work",
-    name: "夜班",
-    start: "20:00",
-    end: "08:00",
-    tone: "indigo"
-  },
-  {
-    id: "off",
-    kind: "off",
-    name: "休息",
-    start: "00:00",
-    end: "00:00",
-    tone: "sage"
-  }
-];
+await initializeLanguage();
+
+function getDefaultShiftPresets() {
+  return [
+    {
+      id: "day",
+      kind: "work",
+      name: t("preset.day"),
+      start: "08:00",
+      end: "20:00",
+      tone: "sky"
+    },
+    {
+      id: "night",
+      kind: "work",
+      name: t("preset.night"),
+      start: "20:00",
+      end: "08:00",
+      tone: "indigo"
+    },
+    {
+      id: "off",
+      kind: "off",
+      name: t("preset.rest"),
+      start: "00:00",
+      end: "00:00",
+      tone: "sage"
+    }
+  ];
+}
+
+function toneName(tone) {
+  return t(`tone.${tone}`);
+}
+
 const ICON_PATHS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.42 1.42"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
@@ -84,7 +90,8 @@ const ICON_PATHS = {
   rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   arrowLeft: '<path d="m15 18-6-6 6-6"/>',
   arrowRight: '<path d="m9 18 6-6-6-6"/>',
-  settings: '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h8"/><path d="M16 18h4"/><circle cx="14" cy="18" r="2"/>'
+  settings: '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h8"/><path d="M16 18h4"/><circle cx="14" cy="18" r="2"/>',
+  languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>'
 };
 
 const elements = {
@@ -127,6 +134,8 @@ const elements = {
   accountAvatar: document.querySelector("#accountAvatar"),
   accountName: document.querySelector("#accountName"),
   accountRole: document.querySelector("#accountRole"),
+  languageButton: document.querySelector("#languageButton"),
+  languageLabel: document.querySelector("#languageLabel"),
   calendarList: document.querySelector("#calendarList"),
   newCalendarButton: document.querySelector("#newCalendarButton"),
   mergedSubscription: document.querySelector("#mergedSubscription"),
@@ -141,12 +150,20 @@ const elements = {
   peopleList: document.querySelector("#peopleList"),
   peoplePanel: document.querySelector("#peoplePanel"),
   invitesPanel: document.querySelector("#invitesPanel"),
+  backupPanel: document.querySelector("#backupPanel"),
   inviteForm: document.querySelector("#inviteForm"),
   inviteCode: document.querySelector("#inviteCode"),
   inviteMaxUses: document.querySelector("#inviteMaxUses"),
   inviteExpiry: document.querySelector("#inviteExpiry"),
   inviteCount: document.querySelector("#inviteCount"),
   inviteList: document.querySelector("#inviteList"),
+  exportBackupButton: document.querySelector("#exportBackupButton"),
+  backupExportStatus: document.querySelector("#backupExportStatus"),
+  backupImportForm: document.querySelector("#backupImportForm"),
+  backupFile: document.querySelector("#backupFile"),
+  backupFileName: document.querySelector("#backupFileName"),
+  backupImportButton: document.querySelector("#backupImportButton"),
+  backupStatus: document.querySelector("#backupStatus"),
   authDialog: document.querySelector("#authDialog"),
   authClose: document.querySelector("#authClose"),
   authTitle: document.querySelector("#authTitle"),
@@ -200,34 +217,6 @@ let adminUsers = [];
 let invites = [];
 let adminPasswordUser = null;
 
-const ERROR_MESSAGES = {
-  invalid_credentials: "用户名或密码不正确",
-  invalid_current_password: "当前密码不正确",
-  username_exists: "这个用户名已经注册",
-  invalid_username: "用户名需为 3–24 位，可使用文字、数字、下划线或短横线",
-  invalid_password: "密码需为 8–128 位",
-  invalid_nickname: "请输入昵称",
-  invalid_invite: "邀请码无效或已过期",
-  invalid_invite_code: "邀请码格式不正确",
-  account_pending: "账号仍在等待管理员审批",
-  account_rejected: "注册申请未通过",
-  account_disabled: "账号已停用",
-  authentication_required: "请先登录",
-  admin_required: "需要管理员权限",
-  calendar_limit: "已达到周期数量上限",
-  calendar_not_found: "这个周期不存在",
-  invalid_calendar_selection: "周期选择无效，请重新选择",
-  guest_capacity_reached: "临时订阅名额已满，请稍后再试",
-  invite_exists: "邀请码已存在",
-  invalid_expiry: "有效期必须晚于现在",
-  last_admin: "至少需要保留一名管理员",
-  cannot_modify_self: "不能在这里修改自己的管理员状态",
-  cannot_reset_self: "请在账户设置中修改自己的密码",
-  user_not_found: "这个用户不存在",
-  signing_secret_missing: "服务端签名尚未配置",
-  database_not_configured: "数据库尚未配置"
-};
-
 function icon(name, size = 18) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] ?? ""}</svg>`;
 }
@@ -243,16 +232,18 @@ function makeId() {
 }
 
 function cloneDefaultPresets() {
-  return DEFAULT_SHIFT_PRESETS.map((preset) => ({ ...preset, removable: false }));
+  return getDefaultShiftPresets().map((preset) => ({ ...preset, removable: false }));
 }
 
 function normalizeShiftPreset(raw, index = 0) {
   if (!raw || typeof raw !== "object") return null;
   const storedId = cleanText(raw.id, 80);
   const id = /^[a-zA-Z0-9_-]+$/.test(storedId) ? storedId : `preset-${index + 1}`;
-  const fixed = DEFAULT_SHIFT_PRESETS.some((preset) => preset.id === id);
+  const fixed = getDefaultShiftPresets().some((preset) => preset.id === id);
   const kind = raw.kind === "off" ? "off" : "work";
-  const name = cleanText(raw.name, 28) || (kind === "off" ? "休息" : `班次 ${index + 1}`);
+  const name =
+    cleanText(raw.name, 28) ||
+    (kind === "off" ? t("preset.rest") : t("default.shift", { index: index + 1 }));
   let start = cleanTime(raw.start, kind === "off" ? "00:00" : "09:00");
   let end = cleanTime(raw.end, kind === "off" ? "00:00" : "18:00");
   if (kind === "work" && start === end) {
@@ -301,7 +292,47 @@ function getShiftPreset(id) {
   return shiftPresets.find((preset) => preset.id === id) ?? null;
 }
 
-function makeShift(preset = shiftPresets[0] ?? DEFAULT_SHIFT_PRESETS[0]) {
+function defaultPresetName(id) {
+  const key = { day: "preset.day", night: "preset.night", off: "preset.rest" }[id];
+  return key ? t(key) : null;
+}
+
+function localizeBuiltInName(value) {
+  const text = String(value ?? "");
+  const aliases = [
+    ["default.calendarTitle", ["轮转班表", "Rotation schedule"]],
+    ["default.customShift", ["自定义班次", "Custom shift"]],
+    ["preset.day", ["白班", "Day shift"]],
+    ["preset.night", ["夜班", "Night shift"]],
+    ["preset.rest", ["休息", "Rest day"]]
+  ];
+  for (const [key, names] of aliases) {
+    if (names.includes(text)) return t(key);
+  }
+  const indexed = text.match(/^(?:班次|Shift) (\d+)$/);
+  return indexed ? t("default.shift", { index: indexed[1] }) : text;
+}
+
+function displayPresetName(preset) {
+  const localized = defaultPresetName(preset?.id);
+  if (!localized) return localizeBuiltInName(preset?.name);
+  const aliases = {
+    day: ["白班", "Day shift"],
+    night: ["夜班", "Night shift"],
+    off: ["休息", "Rest day"]
+  };
+  return aliases[preset.id]?.includes(preset.name) ? localized : localizeBuiltInName(preset.name);
+}
+
+function displayShiftName(shift) {
+  if (!shift) return "";
+  const preset = shift.presetId ? getShiftPreset(shift.presetId) : null;
+  return preset ? displayPresetName(preset) : localizeBuiltInName(shift.name);
+}
+
+function makeShift(preset = shiftPresets[0] ?? getDefaultShiftPresets()[0]) {
+  const fallbackPreset = getDefaultShiftPresets()[0];
+  preset ??= fallbackPreset;
   return {
     id: makeId(),
     presetId: preset.id || null,
@@ -314,9 +345,10 @@ function makeShift(preset = shiftPresets[0] ?? DEFAULT_SHIFT_PRESETS[0]) {
 }
 
 function createDefaultState() {
-  const day = getShiftPreset("day") ?? DEFAULT_SHIFT_PRESETS[0];
-  const night = getShiftPreset("night") ?? DEFAULT_SHIFT_PRESETS[1];
-  const off = getShiftPreset("off") ?? DEFAULT_SHIFT_PRESETS[2];
+  const defaults = getDefaultShiftPresets();
+  const day = getShiftPreset("day") ?? defaults[0];
+  const night = getShiftPreset("night") ?? defaults[1];
+  const off = getShiftPreset("off") ?? defaults[2];
   const cycle = [
     makeShift(day),
     makeShift(day),
@@ -326,7 +358,7 @@ function createDefaultState() {
     makeShift(off)
   ];
   return {
-    title: "轮转班表",
+    title: t("default.calendarTitle"),
     includeRest: false,
     durationMonths: DEFAULT_MEMBER_MONTHS,
     cycle,
@@ -383,7 +415,9 @@ function normalizeClientPlan(raw) {
     return {
       id: makeId(),
       kind,
-      name: cleanText(item?.n ?? item?.name, 28) || (kind === "off" ? "休息" : `班次 ${index + 1}`),
+      name:
+        cleanText(item?.n ?? item?.name, 28) ||
+        (kind === "off" ? t("preset.rest") : t("default.shift", { index: index + 1 })),
       start: cleanTime(item?.a ?? item?.start, kind === "off" ? "00:00" : "09:00"),
       end: cleanTime(item?.b ?? item?.end, kind === "off" ? "00:00" : "18:00"),
       tone: TONE_ORDER.includes(toneValue) ? toneValue : "sky",
@@ -396,7 +430,7 @@ function normalizeClientPlan(raw) {
     Number.isInteger(sourceToday) && sourceToday >= 0 && sourceToday < cycle.length ? sourceToday : 0;
 
   return {
-    title: cleanText(raw.t ?? raw.title, 64) || "轮转班表",
+    title: cleanText(raw.t ?? raw.title, 64) || t("default.calendarTitle"),
     includeRest: Boolean(raw.r ?? raw.includeRest),
     durationMonths: clampSubscriptionMonths(
       raw.d ?? raw.durationMonths,
@@ -543,15 +577,15 @@ function daysBetween(start, end) {
 }
 
 function formatShortDate(date) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(getLocale(), { month: "numeric", day: "numeric" }).format(date);
 }
 
 function formatWeekday(date) {
-  return new Intl.DateTimeFormat("zh-CN", { weekday: "short" }).format(date);
+  return new Intl.DateTimeFormat(getLocale(), { weekday: "short" }).format(date);
 }
 
 function formatDate(value) {
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(getLocale(), {
     year: "numeric",
     month: "long",
     day: "numeric"
@@ -573,11 +607,12 @@ function clampSubscriptionMonths(value, fallback = DEFAULT_MEMBER_MONTHS) {
 function formatRange() {
   const start = todayISODate();
   const end = addMonths(start, coverageMonths());
-  return `${formatDate(start)}至${new Intl.DateTimeFormat("zh-CN", {
+  const endLabel = new Intl.DateTimeFormat(getLocale(), {
     year: "numeric",
     month: "long",
     day: "numeric"
-  }).format(end)}`;
+  }).format(end);
+  return t("time.range", { start: formatDate(start), end: endLabel });
 }
 
 function isOvernightShift(shift) {
@@ -596,10 +631,10 @@ function restStartForIndex(index) {
 
 function shiftTimeLabel(shift, restStart = null) {
   if (shift.kind === "off") {
-    return restStart ? `${restStart} 起 · 24 小时` : "全天";
+    return restStart ? t("time.restStart", { time: restStart }) : t("time.allDay");
   }
   const overnight = toMinutes(shift.end) <= toMinutes(shift.start);
-  return `${shift.start}–${overnight ? "次日 " : ""}${shift.end}`;
+  return `${shift.start}–${overnight ? t("time.nextDay") : ""}${shift.end}`;
 }
 
 function toMinutes(value) {
@@ -622,8 +657,10 @@ function renderPresets() {
         <button class="preset-button tone-${preset.tone}" type="button" data-preset="${preset.id}">
           <span class="preset-glyph">${icon(shiftIcon(preset), 16)}</span>
           <span class="preset-copy">
-            <strong>${escapeHTML(preset.name)}</strong>
-            <small>${preset.kind === "off" ? "全天" : `${preset.start}–${preset.end}`}</small>
+            <strong>${escapeHTML(displayPresetName(preset))}</strong>
+            <small>${
+              preset.kind === "off" ? t("common.allDay") : `${preset.start}–${preset.end}`
+            }</small>
           </span>
         </button>
       `;
@@ -642,9 +679,9 @@ function renderShiftSettings() {
             data-preset-action="tone"
             data-id="${preset.id}"
             data-tone="${tone}"
-            aria-label="${TONE_NAMES[tone]}"
+            aria-label="${escapeHTML(toneName(tone))}"
             aria-pressed="${preset.tone === tone}"
-            title="${TONE_NAMES[tone]}"
+            title="${escapeHTML(toneName(tone))}"
           ></button>
         `
       ).join("");
@@ -656,37 +693,37 @@ function renderShiftSettings() {
             <input
               class="shift-preset-name"
               type="text"
-              value="${escapeHTML(preset.name)}"
+              value="${escapeHTML(displayPresetName(preset))}"
               maxlength="28"
               data-preset-field="name"
               data-id="${preset.id}"
-              aria-label="第 ${index + 1} 个班次名称"
+              aria-label="${escapeHTML(t("shiftSettings.nameAria", { index: index + 1 }))}"
               autocomplete="off"
             />
             ${
               preset.removable
-                ? `<button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="删除${escapeHTML(preset.name)}">${icon("trash", 15)}</button>`
+                ? `<button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.remove", { name: displayPresetName(preset) }))}">${icon("trash", 15)}</button>`
                 : ""
             }
           </div>
           <div class="shift-preset-time">
             ${
               preset.kind === "off"
-                ? '<span class="shift-preset-off">全天休息</span>'
+                ? `<span class="shift-preset-off">${t("shiftSettings.allDayRest")}</span>`
                 : `
                   <label>
-                    <span>开始</span>
-                    <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(preset.name)}开始时间" />
+                    <span>${t("common.start")}</span>
+                    <input type="time" value="${preset.start}" data-preset-field="start" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.startAria", { name: displayPresetName(preset) }))}" />
                   </label>
                   <span aria-hidden="true">→</span>
                   <label>
-                    <span>结束</span>
-                    <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(preset.name)}结束时间" />
+                    <span>${t("common.end")}</span>
+                    <input type="time" value="${preset.end}" data-preset-field="end" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.endAria", { name: displayPresetName(preset) }))}" />
                   </label>
                 `
             }
           </div>
-          <div class="shift-preset-tones" role="group" aria-label="${escapeHTML(preset.name)}颜色">
+          <div class="shift-preset-tones" role="group" aria-label="${escapeHTML(t("shiftSettings.colors", { name: displayPresetName(preset) }))}">
             ${tones}
           </div>
         </article>
@@ -718,13 +755,13 @@ function updateShiftPreset(id, patch) {
 
 function addCustomShiftPreset() {
   if (shiftPresets.length >= 12) {
-    showToast("最多保存 12 个班次", "error");
+    showToast(t("shiftSettings.tooMany"), "error");
     return;
   }
   const preset = {
     id: `custom-${makeId()}`,
     kind: "work",
-    name: "自定义班次",
+    name: t("default.customShift"),
     start: "09:00",
     end: "18:00",
     tone: "coral",
@@ -748,14 +785,14 @@ function removeShiftPreset(id) {
   const preset = getShiftPreset(id);
   if (!preset?.removable) return;
   if (state.cycle.some((shift) => shift.presetId === id)) {
-    showToast("先从周期中移除使用此班次的天数", "error");
+    showToast(t("shiftSettings.inUse"), "error");
     return;
   }
   shiftPresets = shiftPresets.filter((item) => item.id !== id);
   saveShiftPresets();
   renderPresets();
   renderShiftSettings();
-  showToast("自定义班次已删除");
+  showToast(t("shiftSettings.removed"));
 }
 
 function renderCycle(options = {}) {
@@ -774,8 +811,8 @@ function renderCycle(options = {}) {
           <button
             class="drag-handle"
             type="button"
-            aria-label="拖动第 ${index + 1} 天排序，按上下方向键移动"
-            title="拖动排序"
+            aria-label="${escapeHTML(t("cycle.dragSort", { index: index + 1 }))}"
+            title="${escapeHTML(t("cycle.dragTitle"))}"
           >
             ${icon("grip", 15)}
           </button>
@@ -783,72 +820,72 @@ function renderCycle(options = {}) {
             class="day-number"
             type="button"
             data-action="today"
-            aria-label="将第 ${index + 1} 天设为今天"
+            aria-label="${escapeHTML(t("cycle.setToday", { index: index + 1 }))}"
             aria-pressed="${isToday}"
-            title="设为今天"
-          >${isToday ? "今" : String(index + 1).padStart(2, "0")}</button>
+            title="${escapeHTML(t("cycle.setTodayTitle"))}"
+          >${isToday ? t("cycle.todayShort") : String(index + 1).padStart(2, "0")}</button>
 
           <div class="shift-identity">
             <button
               class="color-dot"
               type="button"
               data-action="color"
-              aria-label="更换颜色，当前${TONE_NAMES[shift.tone]}"
-              title="更换颜色"
+              aria-label="${escapeHTML(t("cycle.changeColor", { tone: toneName(shift.tone) }))}"
+              title="${escapeHTML(t("cycle.changeColorTitle"))}"
             ></button>
             <input
               class="shift-name"
               type="text"
-              value="${escapeHTML(shift.name)}"
+              value="${escapeHTML(displayShiftName(shift))}"
               maxlength="28"
               data-field="name"
-              aria-label="第 ${index + 1} 天班次名称"
+              aria-label="${escapeHTML(t("cycle.nameAria", { index: index + 1 }))}"
               autocomplete="off"
             />
-            <div class="kind-control" role="group" aria-label="第 ${index + 1} 天类型">
+            <div class="kind-control" role="group" aria-label="${escapeHTML(t("cycle.typeAria", { index: index + 1 }))}">
               <button
                 type="button"
                 data-action="kind"
                 data-kind="work"
                 aria-pressed="${shift.kind === "work"}"
-              >工作</button>
+              >${t("common.work")}</button>
               <button
                 type="button"
                 data-action="kind"
                 data-kind="off"
                 aria-pressed="${shift.kind === "off"}"
-              >休息</button>
+              >${t("common.rest")}</button>
             </div>
           </div>
 
           <div class="time-fields">
             <label class="time-input">
-              <span>开始</span>
+              <span>${t("common.start")}</span>
               <input
                 type="time"
                 value="${shift.start}"
                 data-field="start"
-                aria-label="第 ${index + 1} 天开始时间"
+                aria-label="${escapeHTML(t("cycle.startAria", { index: index + 1 }))}"
               />
             </label>
             <span class="time-arrow" aria-hidden="true">→</span>
             <label class="time-input">
-              <span>结束</span>
+              <span>${t("common.end")}</span>
               <input
                 type="time"
                 value="${shift.end}"
                 data-field="end"
-                aria-label="第 ${index + 1} 天结束时间"
+                aria-label="${escapeHTML(t("cycle.endAria", { index: index + 1 }))}"
               />
             </label>
           </div>
             <span class="off-label">${
               restStartForIndex(index)
-                ? `夜班 ${restStartForIndex(index)} 下班，休息 24 小时`
-                : "全天休息，不占用日历时间"
+                ? t("cycle.overnightRest", { time: restStartForIndex(index) })
+                : t("cycle.restNoCalendar")
             }</span>
 
-          <button class="remove-button" type="button" data-action="remove" aria-label="删除第 ${index + 1} 天">
+          <button class="remove-button" type="button" data-action="remove" aria-label="${escapeHTML(t("cycle.removeAria", { index: index + 1 }))}">
             ${icon("trash", 15)}
           </button>
         </article>
@@ -873,11 +910,95 @@ function getSelectedShift() {
   return { shift: state.cycle[index], index };
 }
 
+function renderMobileShiftPanel(selected, selectedIndex) {
+  elements.mobileShiftPanel.innerHTML = `
+    <div class="mobile-editor-heading">
+      <span>
+        <small>${escapeHTML(t("cycle.mobileCurrent", { index: selectedIndex + 1 }))}</small>
+        <strong>${escapeHTML(displayShiftName(selected))}</strong>
+      </span>
+      <button
+        class="mobile-today-button"
+        type="button"
+        data-mobile-action="today"
+        aria-pressed="${selected.id === state.todayId}"
+      >${selected.id === state.todayId ? t("cycle.mobileTodayStartButton") : t("cycle.mobileSetToday")}</button>
+    </div>
+
+    <div class="mobile-editor-fields">
+      <div class="mobile-editor-main">
+        <div class="kind-control" role="group" aria-label="${escapeHTML(t("cycle.mobileType"))}">
+          <button
+            type="button"
+            data-mobile-action="kind"
+            data-kind="work"
+            aria-pressed="${selected.kind === "work"}"
+          >${t("common.work")}</button>
+          <button
+            type="button"
+            data-mobile-action="kind"
+            data-kind="off"
+            aria-pressed="${selected.kind === "off"}"
+          >${t("common.rest")}</button>
+        </div>
+      </div>
+
+      <div class="mobile-editor-side">
+        <div class="mobile-editor-actions">
+          <button type="button" data-mobile-action="left" aria-label="${escapeHTML(t("cycle.moveBackward"))}" title="${escapeHTML(t("cycle.moveBackward"))}" ${selectedIndex === 0 ? "disabled" : ""}>
+            ${icon("arrowLeft", 15)}
+          </button>
+          <button type="button" data-mobile-action="right" aria-label="${escapeHTML(t("cycle.moveForward"))}" title="${escapeHTML(t("cycle.moveForward"))}" ${selectedIndex === state.cycle.length - 1 ? "disabled" : ""}>
+            ${icon("arrowRight", 15)}
+          </button>
+          <button class="is-danger" type="button" data-mobile-action="remove" aria-label="${escapeHTML(t("cycle.deleteCurrent"))}" title="${escapeHTML(t("cycle.deleteCurrent"))}">
+            ${icon("trash", 15)}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function revealMobileCycleChip(chip, behavior = "smooth") {
+  const strip = elements.mobileCycleStrip;
+  const edgePadding = 10;
+  const visibleStart = strip.scrollLeft + edgePadding;
+  const visibleEnd = strip.scrollLeft + strip.clientWidth - edgePadding;
+  const stripRect = strip.getBoundingClientRect();
+  const chipRect = chip.getBoundingClientRect();
+  const chipStart = chipRect.left - stripRect.left + strip.scrollLeft;
+  const chipEnd = chipStart + chipRect.width;
+  if (chipStart >= visibleStart && chipEnd <= visibleEnd) return;
+
+  const target = chipStart - (strip.clientWidth - chipRect.width) / 2;
+  strip.scrollTo({
+    left: Math.max(0, target),
+    behavior: reduceMotionQuery.matches ? "auto" : behavior
+  });
+}
+
+function selectMobileCycleShift(id) {
+  if (id === selectedShiftId || !state.cycle.some((shift) => shift.id === id)) return;
+  selectedShiftId = id;
+  for (const chip of elements.mobileCycleStrip.querySelectorAll("[data-mobile-shift-id]")) {
+    const isSelected = chip.dataset.mobileShiftId === id;
+    chip.classList.toggle("is-selected", isSelected);
+    chip.setAttribute("aria-pressed", String(isSelected));
+  }
+  const { shift, index } = getSelectedShift();
+  renderMobileShiftPanel(shift, index);
+  requestAnimationFrame(() => {
+    const chip = elements.mobileCycleStrip.querySelector(`[data-mobile-shift-id="${id}"]`);
+    if (chip) revealMobileCycleChip(chip);
+  });
+}
+
 function renderMobileCycle() {
   const { shift: selected, index: selectedIndex } = getSelectedShift();
   if (!selected) {
     elements.mobileCycleStrip.innerHTML = "";
-    elements.mobileShiftPanel.innerHTML = '<p class="mobile-empty">先添加一个班次</p>';
+    elements.mobileShiftPanel.innerHTML = `<p class="mobile-empty">${t("cycle.mobileEmpty")}</p>`;
     return;
   }
 
@@ -891,16 +1012,22 @@ function renderMobileCycle() {
           type="button"
           data-mobile-shift-id="${shift.id}"
           aria-pressed="${isSelected}"
-          aria-label="第 ${index + 1} 天，${escapeHTML(shift.name)}${isToday ? "，今天起点" : ""}"
+          aria-label="${escapeHTML(
+            t("cycle.mobileDayAria", {
+              index: index + 1,
+              name: displayShiftName(shift),
+              today: isToday ? t("cycle.mobileTodayStart") : ""
+            })
+          )}"
         >
-          <span class="mobile-chip-index">${isToday ? "今" : String(index + 1).padStart(2, "0")}</span>
+          <span class="mobile-chip-index">${isToday ? t("cycle.todayShort") : String(index + 1).padStart(2, "0")}</span>
           <span class="mobile-chip-copy">
-            <strong data-mobile-chip-name>${escapeHTML(shift.name)}</strong>
+            <strong data-mobile-chip-name>${escapeHTML(displayShiftName(shift))}</strong>
             <small data-mobile-chip-time>${
               shift.kind === "off"
                 ? restStartForIndex(index)
-                  ? `${restStartForIndex(index)} 起休息 24 小时`
-                  : "全天休息"
+                  ? t("cycle.mobileRest", { time: restStartForIndex(index) })
+                  : t("cycle.mobileAllDayRest")
                 : shiftTimeLabel(shift)
             }</small>
           </span>
@@ -909,58 +1036,12 @@ function renderMobileCycle() {
     })
     .join("");
 
-  elements.mobileShiftPanel.innerHTML = `
-    <div class="mobile-editor-heading">
-      <span>
-        <small>第 ${selectedIndex + 1} 天 · 当前选择</small>
-        <strong>${escapeHTML(selected.name)}</strong>
-      </span>
-      <button
-        class="mobile-today-button"
-        type="button"
-        data-mobile-action="today"
-        aria-pressed="${selected.id === state.todayId}"
-      >${selected.id === state.todayId ? "今天起点" : "设为今天"}</button>
-    </div>
-
-    <div class="mobile-editor-fields">
-      <div class="mobile-editor-main">
-        <div class="kind-control" role="group" aria-label="班次类型">
-          <button
-            type="button"
-            data-mobile-action="kind"
-            data-kind="work"
-            aria-pressed="${selected.kind === "work"}"
-          >工作</button>
-          <button
-            type="button"
-            data-mobile-action="kind"
-            data-kind="off"
-            aria-pressed="${selected.kind === "off"}"
-          >休息</button>
-        </div>
-      </div>
-
-      <div class="mobile-editor-side">
-        <div class="mobile-editor-actions">
-          <button type="button" data-mobile-action="left" aria-label="向前移动" title="向前移动" ${selectedIndex === 0 ? "disabled" : ""}>
-            ${icon("arrowLeft", 15)}
-          </button>
-          <button type="button" data-mobile-action="right" aria-label="向后移动" title="向后移动" ${selectedIndex === state.cycle.length - 1 ? "disabled" : ""}>
-            ${icon("arrowRight", 15)}
-          </button>
-          <button class="is-danger" type="button" data-mobile-action="remove" aria-label="删除当前班次" title="删除当前班次">
-            ${icon("trash", 15)}
-          </button>
-        </div>
-      </div>
-    </div>
-  `;
-
+  renderMobileShiftPanel(selected, selectedIndex);
   requestAnimationFrame(() => {
-    elements.mobileCycleStrip
-      .querySelector(`[data-mobile-shift-id="${selected.id}"]`)
-      ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    const chip = elements.mobileCycleStrip.querySelector(
+      `[data-mobile-shift-id="${selected.id}"]`
+    );
+    if (chip) revealMobileCycleChip(chip);
   });
 }
 
@@ -980,7 +1061,7 @@ function animateNewRow(id) {
 }
 
 function syncFieldValues() {
-  elements.title.value = state.title;
+  elements.title.value = localizeBuiltInName(state.title);
   elements.includeRest.checked = state.includeRest;
   syncCoverageControl();
 }
@@ -997,12 +1078,15 @@ function syncCoverageControl() {
 
 function renderMeta() {
   const workCount = state.cycle.filter((shift) => shift.kind === "work").length;
-  elements.cycleMeta.textContent = `${state.cycle.length} 天循环 · ${workCount} 个班次`;
-  elements.cycleLengthLabel.textContent = `${state.cycle.length} 天`;
+  elements.cycleMeta.textContent = t("builder.cycleMeta", {
+    cycle: plural("units.dayCycle", state.cycle.length),
+    shifts: plural("units.shifts", workCount)
+  });
+  elements.cycleLengthLabel.textContent = plural("units.days", state.cycle.length);
 
   const today = getTodayShift();
   const todayIndex = getTodayIndex();
-  elements.todayShiftName.textContent = today?.name || "未设置";
+  elements.todayShiftName.textContent = today ? displayShiftName(today) : t("common.notSet");
   elements.todayShiftTime.textContent = today
     ? shiftTimeLabel(today, restStartForIndex(todayIndex))
     : "";
@@ -1018,7 +1102,7 @@ function renderSequence() {
         <div
           class="sequence-chip tone-${shift.tone}${index === todayIndex ? " is-today" : ""}"
           data-kind="${shift.kind}"
-          title="${escapeHTML(shift.name)}${index === todayIndex ? " · 今天" : ""}"
+          title="${escapeHTML(displayShiftName(shift))}${index === todayIndex ? escapeHTML(t("cycle.todaySuffix")) : ""}"
         >
           ${String(index + 1).padStart(2, "0")}
         </div>
@@ -1050,7 +1134,7 @@ function renderSchedule() {
       <div class="schedule-row tone-${shift.tone}">
         <span class="schedule-date">${formatShortDate(date)} ${formatWeekday(date)}</span>
         <span class="schedule-tone" aria-hidden="true"></span>
-        <span class="schedule-name">${escapeHTML(shift.name)}${offset === 0 ? " · 今天" : ""}</span>
+        <span class="schedule-name">${escapeHTML(displayShiftName(shift))}${offset === 0 ? escapeHTML(t("cycle.todaySuffix")) : ""}</span>
         <span class="schedule-time">${escapeHTML(
           shiftTimeLabel(shift, restStartForIndex(cycleIndex))
         )}</span>
@@ -1059,49 +1143,50 @@ function renderSchedule() {
   }
 
   elements.scheduleList.innerHTML = rows.join("");
-  elements.eventEstimate.textContent = `${eventCount} 个事件`;
-  elements.rangeCopy.textContent = `从今天起 · ${formatRange()}`;
+  elements.eventEstimate.textContent = plural("units.events", eventCount);
+  elements.rangeCopy.textContent = t("time.todayRange", { range: formatRange() });
 }
 
 function getValidationErrors() {
   const errors = [];
-  if (!state.title.trim()) errors.push("日历名称不能为空");
-  if (!state.cycle.length) errors.push("至少需要一个班次");
+  if (!state.title.trim()) errors.push(t("validation.title"));
+  if (!state.cycle.length) errors.push(t("validation.cycle"));
   for (const [index, shift] of state.cycle.entries()) {
-    if (!shift.name.trim()) errors.push(`第 ${index + 1} 天缺少名称`);
+    if (!shift.name.trim()) errors.push(t("validation.shiftName", { index: index + 1 }));
     if (shift.kind === "work" && shift.start === shift.end) {
-      errors.push(`第 ${index + 1} 天的开始和结束时间相同`);
+      errors.push(t("validation.shiftTimes", { index: index + 1 }));
     }
   }
   if (!state.cycle.some((shift) => shift.id === state.todayId)) {
-    errors.push("需要选择一个今天的班次");
+    errors.push(t("validation.today"));
   }
   return errors;
 }
 
 function updateActionLabels() {
   const months = coverageMonths();
-  elements.coverageBadge.textContent = `${months} 个月`;
+  const monthsLabel = plural("units.months", months);
+  elements.coverageBadge.textContent = monthsLabel;
   elements.saveCalendar.hidden = !currentUser;
-  elements.saveCalendarLabel.textContent = activeCalendarId ? "保存当前修改" : "保存周期";
+  elements.saveCalendarLabel.textContent = activeCalendarId ? t("export.saveChanges") : t("export.save");
 
   if (!currentUser) {
     elements.primaryActionIcon.innerHTML = icon("link", 18);
     elements.primaryActionLabel.textContent = currentLinks
-      ? "复制 3 个月临时订阅链接"
-      : "生成并复制 3 个月临时订阅链接";
-    elements.downloadIcsLabel.textContent = `下载 ${GUEST_EXPORT_MONTHS} 个月 .ics`;
-    elements.privacyNote.textContent =
-      `推荐下载 .ics，最多覆盖 ${GUEST_EXPORT_MONTHS} 个月。临时订阅链接覆盖 3 个月，7 天后失效并定期清除。`;
+      ? t("export.guestCopy")
+      : t("export.guestGenerate");
+    elements.downloadIcsLabel.textContent = t("export.download", {
+      months: plural("units.months", GUEST_EXPORT_MONTHS)
+    });
+    elements.privacyNote.textContent = t("export.guestPrivacy");
   } else {
     elements.primaryActionIcon.innerHTML = icon("link", 18);
     elements.primaryActionLabel.textContent =
       activeCalendarId
-        ? `更新并复制 ${months} 个月订阅链接`
-        : `保存并复制 ${months} 个月订阅链接`;
-    elements.downloadIcsLabel.textContent = `下载 ${months} 个月 .ics`;
-    elements.privacyNote.textContent =
-      `订阅地址带服务端签名，覆盖未来 ${months} 个月。修改周期不会改变链接，停用账号后链接失效。`;
+        ? t("export.memberUpdate", { months: monthsLabel })
+        : t("export.memberSave", { months: monthsLabel });
+    elements.downloadIcsLabel.textContent = t("export.download", { months: monthsLabel });
+    elements.privacyNote.textContent = t("export.memberPrivacy", { months: monthsLabel });
   }
 }
 
@@ -1109,7 +1194,7 @@ function updateValidation() {
   const errors = getValidationErrors();
   const valid = errors.length === 0;
   elements.validityBadge.classList.toggle("is-invalid", !valid);
-  elements.validityBadge.innerHTML = `${icon(valid ? "check" : "alert", 12)}<span>${valid ? "准备就绪" : "需要调整"}</span>`;
+  elements.validityBadge.innerHTML = `${icon(valid ? "check" : "alert", 12)}<span>${valid ? t("export.ready") : t("export.needsWork")}</span>`;
   elements.validityBadge.title = valid ? "" : errors[0];
   elements.copyLink.disabled = !valid;
   elements.saveCalendar.disabled = !valid;
@@ -1148,7 +1233,9 @@ function renderPreview() {
 
 function invalidateLinks() {
   currentLinks = null;
-  elements.linkText.textContent = currentUser ? "保存周期后生成链接" : "生成后显示日历链接";
+  elements.linkText.textContent = currentUser
+    ? t("export.memberLinkPlaceholder")
+    : t("export.linkPlaceholder");
   elements.copyLinkIcon.disabled = true;
   updateValidation();
   scheduleSave();
@@ -1173,7 +1260,7 @@ function scheduleSave() {
 
 function addShift(preset, options = {}) {
   if (state.cycle.length >= 35) {
-    showToast("一个周期最多包含 35 天", "error");
+    showToast(t("cycle.maxDays"), "error");
     return;
   }
   const shift = makeShift(preset);
@@ -1196,7 +1283,7 @@ function addShift(preset, options = {}) {
 
 function removeShift(id) {
   if (state.cycle.length <= 1) {
-    showToast("至少保留一个班次", "error");
+    showToast(t("cycle.keepOne"), "error");
     return;
   }
   const index = state.cycle.findIndex((shift) => shift.id === id);
@@ -1227,13 +1314,13 @@ function changeKind(row, id, kind) {
 
   if (kind === "off") {
     shift.kind = "off";
-    shift.name = "休息";
+    shift.name = t("preset.rest");
     shift.start = "00:00";
     shift.end = "00:00";
     shift.tone = "sage";
   } else {
     shift.kind = "work";
-    shift.name = "白班";
+    shift.name = t("preset.day");
     shift.start = "08:00";
     shift.end = "20:00";
     shift.tone = "sky";
@@ -1261,7 +1348,9 @@ function changeTone(row, id) {
   const currentIndex = TONE_ORDER.indexOf(shift.tone);
   shift.tone = TONE_ORDER[(currentIndex + 1) % TONE_ORDER.length];
   updateTone(row, shift.tone);
-  row.querySelector(".color-dot")?.setAttribute("aria-label", `更换颜色，当前${TONE_NAMES[shift.tone]}`);
+  row
+    .querySelector(".color-dot")
+    ?.setAttribute("aria-label", t("cycle.changeColor", { tone: toneName(shift.tone) }));
   updateAllPreview();
 }
 
@@ -1431,19 +1520,76 @@ async function api(path, options = {}) {
 }
 
 function errorMessage(error) {
-  return ERROR_MESSAGES[error?.message] || "操作没有完成，请重试";
+  const code = error?.message || "generic";
+  const translated = t(`errors.${code}`);
+  return translated === `errors.${code}` ? t("errors.generic") : translated;
+}
+
+function refreshLanguageButton() {
+  const label = t("language.label");
+  elements.languageLabel.textContent = label;
+  elements.languageButton.setAttribute("aria-label", t("language.switch"));
+  elements.languageButton.title = t("language.switch");
+}
+
+function refreshLocalizedUI() {
+  refreshLanguageButton();
+  renderPresets();
+  renderShiftSettings();
+  renderCycle();
+  applyUserUI();
+  renderCalendarList();
+  renderMergedSubscription();
+  if (currentUser?.role === "admin") {
+    renderPeople();
+    renderInvites();
+  }
+  const backupFile = elements.backupFile.files?.[0];
+  elements.backupFileName.textContent = backupFile?.name || t("backup.chooseFile");
+
+  if (!elements.accountPanel.hidden) {
+    elements.authTitle.textContent = t("auth.account");
+  } else {
+    elements.authTitle.textContent = elements.loginForm.hidden ? t("auth.register") : t("auth.login");
+  }
+
+  if (currentLinks) {
+    elements.linkText.textContent = currentLinks.ics.replace(/^https?:\/\//, "");
+  } else {
+    elements.linkText.textContent = currentUser
+      ? t("export.memberLinkPlaceholder")
+      : t("export.linkPlaceholder");
+  }
+}
+
+function localizeBuiltInData() {
+  state.title = localizeBuiltInName(state.title);
+  for (const shift of state.cycle) {
+    shift.name = localizeBuiltInName(shift.name);
+  }
+  for (const preset of shiftPresets) {
+    preset.name = localizeBuiltInName(preset.name);
+  }
+}
+
+async function toggleLanguage() {
+  await setLanguage(getLanguage() === "zh-CN" ? "en" : "zh-CN");
+  localizeBuiltInData();
+  refreshLocalizedUI();
+  syncFieldValues();
+  scheduleSave();
 }
 
 function applyUserUI() {
   const loggedIn = Boolean(currentUser);
   elements.navCalendars.hidden = !loggedIn;
   elements.navAdmin.hidden = currentUser?.role !== "admin";
-  elements.accountName.textContent = currentUser?.nickname || "登录";
+  elements.accountName.textContent = currentUser?.nickname || t("auth.login");
   elements.accountRole.textContent = currentUser
     ? currentUser.role === "admin"
-      ? "管理员"
-      : "成员"
-    : "游客";
+      ? t("role.admin")
+      : t("role.member")
+    : t("role.guest");
   elements.accountAvatar.innerHTML = loggedIn
     ? escapeHTML(currentUser.nickname.trim().slice(0, 1).toUpperCase())
     : icon("user", 15);
@@ -1474,7 +1620,7 @@ function setAuthTab(tab) {
   }
   elements.loginForm.hidden = tab !== "login";
   elements.registerForm.hidden = tab !== "register";
-  elements.authTitle.textContent = tab === "login" ? "登录" : "注册";
+  elements.authTitle.textContent = tab === "login" ? t("auth.login") : t("auth.register");
   setAuthStatus("");
 }
 
@@ -1494,12 +1640,13 @@ function openAccountDialog() {
   elements.loginForm.hidden = true;
   elements.registerForm.hidden = true;
   elements.accountPanel.hidden = false;
-  elements.authTitle.textContent = "账户";
+  elements.authTitle.textContent = t("auth.account");
   setAuthStatus("");
   elements.accountPanelAvatar.textContent = currentUser.nickname.trim().slice(0, 1).toUpperCase();
   elements.accountPanelName.textContent = currentUser.nickname;
   elements.accountPanelUsername.textContent = `@${currentUser.username}`;
-  elements.accountPanelRole.textContent = currentUser.role === "admin" ? "管理员" : "成员";
+  elements.accountPanelRole.textContent =
+    currentUser.role === "admin" ? t("role.admin") : t("role.member");
   elements.accountPanelRole.dataset.status = "approved";
   elements.profileForm.elements.username.value = currentUser.username;
   elements.profileForm.elements.nickname.value = currentUser.nickname;
@@ -1531,7 +1678,7 @@ async function handleLogin(event) {
   const form = new FormData(elements.loginForm);
   const button = elements.loginForm.querySelector("button[type='submit']");
   button.disabled = true;
-  setAuthStatus("正在登录…");
+  setAuthStatus(t("auth.signingIn"));
   try {
     const data = await api("/api/auth/login", {
       method: "POST",
@@ -1546,7 +1693,7 @@ async function handleLogin(event) {
     invalidateLinks();
     closeAuthDialog();
     elements.loginForm.reset();
-    showToast("已登录");
+    showToast(t("auth.loggedIn"));
   } catch (error) {
     setAuthStatus(errorMessage(error), true);
   } finally {
@@ -1559,7 +1706,7 @@ async function handleRegister(event) {
   const form = new FormData(elements.registerForm);
   const button = elements.registerForm.querySelector("button[type='submit']");
   button.disabled = true;
-  setAuthStatus("正在提交…");
+  setAuthStatus(t("auth.submitting"));
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
@@ -1578,9 +1725,9 @@ async function handleRegister(event) {
       invalidateLinks();
       closeAuthDialog();
       elements.registerForm.reset();
-      showToast(data.bootstrap ? "管理员账号已创建" : "注册成功");
+      showToast(data.bootstrap ? t("auth.adminCreated") : t("auth.registered"));
     } else {
-      setAuthStatus("注册申请已提交，等待管理员审批。");
+      setAuthStatus(t("auth.pending"));
       elements.registerForm.reset();
     }
   } catch (error) {
@@ -1594,7 +1741,7 @@ async function handleProfileUpdate(event) {
   event.preventDefault();
   const form = new FormData(elements.profileForm);
   elements.profileSubmit.disabled = true;
-  setFormStatus(elements.profileStatus, "正在保存…");
+  setFormStatus(elements.profileStatus, t("auth.saving"));
   try {
     const data = await api("/api/auth/profile", {
       method: "PATCH",
@@ -1610,8 +1757,8 @@ async function handleProfileUpdate(event) {
     elements.accountPanelUsername.textContent = `@${currentUser.username}`;
     elements.profileForm.elements.username.value = currentUser.username;
     elements.profileForm.elements.nickname.value = currentUser.nickname;
-    setFormStatus(elements.profileStatus, "资料已更新");
-    showToast("资料已更新");
+    setFormStatus(elements.profileStatus, t("auth.profileUpdated"));
+    showToast(t("auth.profileUpdated"));
   } catch (error) {
     setFormStatus(elements.profileStatus, errorMessage(error), true);
   } finally {
@@ -1625,13 +1772,13 @@ async function handlePasswordChange(event) {
   const newPassword = String(form.get("newPassword") || "");
   const confirmPassword = String(form.get("confirmPassword") || "");
   if (newPassword !== confirmPassword) {
-    setFormStatus(elements.passwordStatus, "两次输入的新密码不一致", true);
+    setFormStatus(elements.passwordStatus, t("auth.passwordMismatch"), true);
     elements.passwordForm.elements.confirmPassword.focus();
     return;
   }
 
   elements.passwordSubmit.disabled = true;
-  setFormStatus(elements.passwordStatus, "正在更新…");
+  setFormStatus(elements.passwordStatus, t("auth.updating"));
   try {
     await api("/api/auth/password", {
       method: "PATCH",
@@ -1641,13 +1788,27 @@ async function handlePasswordChange(event) {
       })
     });
     elements.passwordForm.reset();
-    setFormStatus(elements.passwordStatus, "密码已更新，其他设备已退出登录");
-    showToast("密码已更新");
+    setFormStatus(elements.passwordStatus, t("auth.passwordUpdated"));
+    showToast(t("auth.passwordUpdatedToast"));
   } catch (error) {
     setFormStatus(elements.passwordStatus, errorMessage(error), true);
   } finally {
     elements.passwordSubmit.disabled = false;
   }
+}
+
+function clearAuthenticatedState() {
+  currentUser = null;
+  calendars = [];
+  adminUsers = [];
+  invites = [];
+  mergedSubscription = null;
+  selectedMergedSubscription = null;
+  selectedCalendarIds.clear();
+  selectedMergedRequestId += 1;
+  activeCalendarId = null;
+  currentLinks = null;
+  applyUserUI();
 }
 
 async function logout() {
@@ -1656,18 +1817,10 @@ async function logout() {
   } catch {
     // Clear the local session state even if the server is unavailable.
   }
-  currentUser = null;
-  calendars = [];
-  mergedSubscription = null;
-  selectedMergedSubscription = null;
-  selectedCalendarIds.clear();
-  selectedMergedRequestId += 1;
-  activeCalendarId = null;
-  currentLinks = null;
-  applyUserUI();
+  clearAuthenticatedState();
   closeAuthDialog();
   showView("builder");
-  showToast("已退出登录");
+  showToast(t("auth.loggedOut"));
 }
 
 function absoluteUrl(path) {
@@ -1749,8 +1902,8 @@ async function copySubscriptionLink() {
     await copyText(links.ics);
     showToast(
       currentUser
-        ? `${links.months} 个月订阅链接已复制`
-        : `${links.months} 个月临时链接已复制，7 天后失效`
+        ? t("toast.linkCopied", { months: plural("units.months", links.months) })
+        : t("toast.guestLinkCopied", { months: plural("units.months", links.months) })
     );
   } catch (error) {
     showToast(errorMessage(error), "error");
@@ -1770,12 +1923,12 @@ async function downloadCalendar() {
         body: JSON.stringify({ plan: compactPlan() })
       });
       window.location.href = absoluteUrl(data.path);
-      showToast(`${data.months} 个月临时日历文件已准备`);
+      showToast(t("toast.guestExportReady", { months: plural("units.months", data.months) }));
       return;
     }
     const links = await ensureLinks();
     window.location.href = links.download;
-    showToast("正在下载日历文件");
+    showToast(t("toast.downloading"));
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
@@ -1797,7 +1950,7 @@ async function saveCurrentCalendar() {
   }
   try {
     await persistCalendar();
-    showToast(activeCalendarId ? "周期已保存" : "周期已创建");
+    showToast(activeCalendarId ? t("toast.saved") : t("toast.created"));
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
@@ -1826,16 +1979,18 @@ function renderMergedSubscription() {
   if (!visible) return;
 
   elements.mergedCalendarCount.textContent =
-    selectedCount > 0 ? `已选 ${selectedCount} 个` : `全部 ${calendars.length} 个`;
+    selectedCount > 0
+      ? plural("units.selected", selectedCount)
+      : plural("units.total", calendars.length);
   elements.mergedSubscriptionDescription.textContent =
-    selectedCount > 0 ? "仅合并勾选的已保存周期" : "自动包含全部已保存周期";
+    selectedCount > 0 ? t("saved.mergedSelected") : t("saved.mergedAuto");
   elements.mergedSubscriptionActionLabel.textContent =
-    selectedCount > 0 ? "复制所选链接" : "复制全部链接";
+    selectedCount > 0 ? t("saved.copySelected") : t("saved.copyAll");
   elements.copyMergedSubscription.disabled = !activeSubscription?.subscriptionPath;
   elements.mergedSubscriptionLink.textContent = activeSubscription?.subscriptionPath
     ? `${window.location.host}${activeSubscription.subscriptionPath}`
     : selectedCount > 0
-      ? "正在生成所选周期链接…"
+      ? t("saved.generating")
       : "";
 }
 
@@ -1906,8 +2061,8 @@ function renderCalendarList() {
   if (!calendars.length) {
     elements.calendarList.innerHTML = `
       <div class="empty-state">
-        <strong>还没有保存的周期</strong>
-        <p>新建周期后会出现在这里。</p>
+        <strong>${t("saved.emptyTitle")}</strong>
+        <p>${t("saved.emptyBody")}</p>
       </div>
     `;
     return;
@@ -1915,42 +2070,43 @@ function renderCalendarList() {
 
   elements.calendarList.innerHTML = calendars
     .map((calendar) => {
+      const displayTitle = localizeBuiltInName(calendar.title);
       const cycleLength = calendar.plan?.c?.length ?? calendar.plan?.cycle?.length ?? 0;
       const months = clampSubscriptionMonths(
         calendar.plan?.d ?? calendar.plan?.durationMonths,
         DEFAULT_MEMBER_MONTHS
       );
       const updated = new Date(calendar.updatedAt);
-      const updatedCopy = new Intl.DateTimeFormat("zh-CN", {
+      const updatedCopy = new Intl.DateTimeFormat(getLocale(), {
         month: "numeric",
         day: "numeric"
       }).format(updated);
       const selected = selectedCalendarIds.has(calendar.id);
       return `
         <article class="calendar-row${selected ? " is-selected" : ""}" data-id="${calendar.id}">
-          <label class="calendar-select" title="选择用于合并订阅">
+          <label class="calendar-select" title="${escapeHTML(t("saved.selectMerge"))}">
             <input
               type="checkbox"
               data-calendar-select
               data-id="${calendar.id}"
-              aria-label="选择 ${escapeHTML(calendar.title)} 用于合并订阅"
+              aria-label="${escapeHTML(t("saved.selectCalendar", { name: displayTitle }))}"
               ${selected ? "checked" : ""}
             />
             <span class="calendar-select-control" aria-hidden="true">${icon("check", 12)}</span>
           </label>
           <div class="calendar-row-copy">
-            <h3>${escapeHTML(calendar.title)}</h3>
+            <h3>${escapeHTML(displayTitle)}</h3>
             <div class="calendar-row-meta">
-              <span>${cycleLength} 天循环</span>
-              <span>${months} 个月</span>
-              <span>更新于 ${updatedCopy}</span>
+              <span>${plural("units.dayCycle", cycleLength)}</span>
+              <span>${plural("units.months", months)}</span>
+              <span>${escapeHTML(t("saved.updated", { date: updatedCopy }))}</span>
               <span class="calendar-sequence" aria-hidden="true">${calendarSequence(calendar.plan)}</span>
             </div>
           </div>
           <div class="calendar-row-actions">
-            <button class="row-action" type="button" data-calendar-action="copy" data-id="${calendar.id}" aria-label="复制订阅链接" title="复制订阅链接">${icon("copy", 15)}</button>
-            <button class="row-action" type="button" data-calendar-action="edit" data-id="${calendar.id}" aria-label="编辑周期" title="编辑周期">${icon("edit", 15)}</button>
-            <button class="row-action is-danger" type="button" data-calendar-action="delete" data-id="${calendar.id}" aria-label="删除周期" title="删除周期">${icon("trash", 15)}</button>
+            <button class="row-action" type="button" data-calendar-action="copy" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.copyLink"))}" title="${escapeHTML(t("saved.copyLink"))}">${icon("copy", 15)}</button>
+            <button class="row-action" type="button" data-calendar-action="edit" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.edit"))}" title="${escapeHTML(t("saved.edit"))}">${icon("edit", 15)}</button>
+            <button class="row-action is-danger" type="button" data-calendar-action="delete" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.delete"))}" title="${escapeHTML(t("saved.delete"))}">${icon("trash", 15)}</button>
           </div>
         </article>
       `;
@@ -1987,7 +2143,7 @@ async function refreshCalendars(options = {}) {
 function loadCalendarIntoBuilder(calendar) {
   state = normalizeClientPlan(calendar.plan);
   ensureCyclePresetAssignments();
-  state.title = calendar.title;
+  state.title = localizeBuiltInName(calendar.title);
   selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
   currentLinks = buildLinks(calendar.subscriptionPath, coverageMonths());
@@ -2018,9 +2174,9 @@ function startNewCalendar() {
 async function copyCalendarLink(calendar) {
   try {
     await copyText(absoluteUrl(calendar.subscriptionPath));
-    showToast("订阅链接已复制");
+    showToast(t("toast.subscriptionCopied"));
   } catch {
-    showToast("复制失败，请重试", "error");
+    showToast(t("toast.copyFailed"), "error");
   }
 }
 
@@ -2033,16 +2189,18 @@ async function copyMergedSubscriptionLink() {
     await copyText(absoluteUrl(subscription.subscriptionPath));
     showToast(
       selectedCount > 0
-        ? `${selectedCount} 个所选周期的合并链接已复制`
-        : `${calendars.length} 个周期的合并链接已复制`
+        ? t("toast.mergedSelectedCopied", { count: selectedCount })
+        : t("toast.mergedAllCopied", { count: calendars.length })
     );
   } catch {
-    showToast("复制失败，请重试", "error");
+    showToast(t("toast.copyFailed"), "error");
   }
 }
 
 async function deleteSavedCalendar(calendar) {
-  if (!window.confirm(`删除“${calendar.title}”？订阅链接会立即失效。`)) return;
+  if (!window.confirm(t("confirm.deleteCalendar", { name: localizeBuiltInName(calendar.title) }))) {
+    return;
+  }
   try {
     await api(`/api/calendars/${calendar.id}`, { method: "DELETE" });
     if (activeCalendarId === calendar.id) {
@@ -2050,7 +2208,7 @@ async function deleteSavedCalendar(calendar) {
       currentLinks = null;
     }
     await refreshCalendars({ quiet: true });
-    showToast("周期已删除");
+    showToast(t("toast.calendarDeleted"));
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
@@ -2058,19 +2216,19 @@ async function deleteSavedCalendar(calendar) {
 
 function renderPeople() {
   const pending = adminUsers.filter((user) => user.status === "pending").length;
-  elements.adminCount.textContent = `${adminUsers.length} 位成员`;
-  elements.pendingCount.textContent = `${pending} 个待审批`;
+  elements.adminCount.textContent = plural("units.members", adminUsers.length);
+  elements.pendingCount.textContent = plural("units.pending", pending);
 
   if (!adminUsers.length) {
-    elements.peopleList.innerHTML = '<div class="empty-state"><strong>暂无成员</strong></div>';
+    elements.peopleList.innerHTML = `<div class="empty-state"><strong>${t("admin.noMembers")}</strong></div>`;
     return;
   }
 
   const statusLabels = {
-    pending: "待审批",
-    approved: "已通过",
-    rejected: "已拒绝",
-    disabled: "已停用"
+    pending: t("status.pending"),
+    approved: t("status.approved"),
+    rejected: t("status.rejected"),
+    disabled: t("status.disabled")
   };
 
   elements.peopleList.innerHTML = adminUsers
@@ -2078,27 +2236,27 @@ function renderPeople() {
       const isSelf = user.id === currentUser?.id;
       const actions = [];
       if (!isSelf) {
-        actions.push(`<button type="button" data-admin-action="password" data-id="${user.id}">改密</button>`);
+        actions.push(`<button type="button" data-admin-action="password" data-id="${user.id}">${t("admin.changePassword")}</button>`);
         if (user.status === "pending") {
-          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">批准</button>`);
-          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="rejected">拒绝</button>`);
+          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">${t("admin.approve")}</button>`);
+          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="rejected">${t("admin.reject")}</button>`);
         } else if (user.status === "approved") {
-          actions.push(`<button type="button" data-admin-action="role" data-id="${user.id}" data-role="${user.role === "admin" ? "user" : "admin"}">${user.role === "admin" ? "设为成员" : "设为管理员"}</button>`);
-          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="disabled">停用</button>`);
+          actions.push(`<button type="button" data-admin-action="role" data-id="${user.id}" data-role="${user.role === "admin" ? "user" : "admin"}">${user.role === "admin" ? t("admin.makeUser") : t("admin.makeAdmin")}</button>`);
+          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="disabled">${t("admin.disable")}</button>`);
         } else {
-          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">恢复</button>`);
+          actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">${t("admin.restore")}</button>`);
         }
       }
 
       return `
         <article class="person-row">
           <div class="person-copy">
-            <strong>${escapeHTML(user.nickname)}${isSelf ? " · 你" : ""}</strong>
+            <strong>${escapeHTML(user.nickname)}${isSelf ? ` · ${t("common.you")}` : ""}</strong>
             <span>@${escapeHTML(user.username)}${user.inviteCode ? ` · ${escapeHTML(user.inviteCode)}` : ""}</span>
           </div>
           <div class="person-stats">
-            <span>${user.role === "admin" ? "管理员" : "成员"}</span>
-            <span>${user.calendarCount} 个周期</span>
+            <span>${user.role === "admin" ? t("role.admin") : t("role.member")}</span>
+            <span>${plural("units.calendars", user.calendarCount)}</span>
           </div>
           <span class="status-pill" data-status="${user.status}">${statusLabels[user.status]}</span>
           <div class="person-actions">${actions.join("")}</div>
@@ -2109,43 +2267,45 @@ function renderPeople() {
 }
 
 function inviteState(invite) {
-  if (invite.disabled) return "已停用";
-  if (invite.uses >= invite.maxUses) return "已用完";
-  if (invite.expiresAt && invite.expiresAt * 1000 <= Date.now()) return "已过期";
-  return "可使用";
+  if (invite.disabled) return { status: "disabled", label: t("status.disabled") };
+  if (invite.uses >= invite.maxUses) return { status: "disabled", label: t("status.usedUp") };
+  if (invite.expiresAt && invite.expiresAt * 1000 <= Date.now()) {
+    return { status: "disabled", label: t("status.expired") };
+  }
+  return { status: "approved", label: t("status.available") };
 }
 
 function renderInvites() {
-  elements.inviteCount.textContent = `${invites.length} 个`;
+  elements.inviteCount.textContent = plural("units.invites", invites.length);
   if (!invites.length) {
-    elements.inviteList.innerHTML = '<div class="empty-state"><strong>暂无邀请码</strong></div>';
+    elements.inviteList.innerHTML = `<div class="empty-state"><strong>${t("admin.noInvites")}</strong></div>`;
     return;
   }
 
   elements.inviteList.innerHTML = invites
     .map((invite) => {
-      const stateLabel = inviteState(invite);
+      const inviteStatus = inviteState(invite);
       const expiry = invite.expiresAt
-        ? new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(
+        ? new Intl.DateTimeFormat(getLocale(), { month: "numeric", day: "numeric" }).format(
             new Date(invite.expiresAt * 1000)
           )
-        : "长期";
+        : t("admin.longTerm");
       return `
         <article class="invite-row">
           <div class="invite-code">
             <strong>${escapeHTML(invite.code)}</strong>
-            <button class="invite-copy" type="button" data-invite-action="copy" data-code="${escapeHTML(invite.code)}" aria-label="复制邀请码">${icon("copy", 13)}</button>
+            <button class="invite-copy" type="button" data-invite-action="copy" data-code="${escapeHTML(invite.code)}" aria-label="${escapeHTML(t("admin.copyInvite"))}">${icon("copy", 13)}</button>
           </div>
           <div class="invite-row-actions">
-            <span class="status-pill" data-status="${stateLabel === "可使用" ? "approved" : "disabled"}">${stateLabel}</span>
+            <span class="status-pill" data-status="${inviteStatus.status}">${inviteStatus.label}</span>
             ${
-              stateLabel === "可使用"
-                ? `<button class="row-action is-danger" type="button" data-invite-action="disable" data-id="${invite.id}" aria-label="停用邀请码">${icon("close", 14)}</button>`
+              inviteStatus.status === "approved"
+                ? `<button class="row-action is-danger" type="button" data-invite-action="disable" data-id="${invite.id}" aria-label="${escapeHTML(t("admin.disableInvite"))}">${icon("close", 14)}</button>`
                 : ""
             }
           </div>
           <div class="invite-meta">
-            <span>${invite.uses}/${invite.maxUses} 次 · ${expiry} · ${escapeHTML(invite.creatorName)}</span>
+            <span>${escapeHTML(t("admin.uses", { used: invite.uses, max: invite.maxUses, expiry, creator: invite.creatorName }))}</span>
           </div>
         </article>
       `;
@@ -2176,7 +2336,7 @@ async function updateAdminUser(userId, payload) {
       body: JSON.stringify(payload)
     });
     await loadAdminData();
-    showToast("成员状态已更新");
+    showToast(t("auth.memberStatusUpdated"));
   } catch (error) {
     showToast(errorMessage(error), "error");
   }
@@ -2204,14 +2364,14 @@ async function handleAdminPasswordReset(event) {
   const newPassword = String(form.get("newPassword") || "");
   const confirmPassword = String(form.get("confirmPassword") || "");
   if (newPassword !== confirmPassword) {
-    setFormStatus(elements.adminPasswordStatus, "两次输入的新密码不一致", true);
+    setFormStatus(elements.adminPasswordStatus, t("auth.passwordMismatch"), true);
     elements.adminPasswordForm.elements.confirmPassword.focus();
     return;
   }
 
   const button = elements.adminPasswordForm.querySelector("button[type='submit']");
   button.disabled = true;
-  setFormStatus(elements.adminPasswordStatus, "正在重置…");
+  setFormStatus(elements.adminPasswordStatus, t("auth.resetting"));
   try {
     await api(`/api/admin/users/${adminPasswordUser.id}/password`, {
       method: "PATCH",
@@ -2220,11 +2380,85 @@ async function handleAdminPasswordReset(event) {
     const nickname = adminPasswordUser.nickname;
     closeAdminPasswordDialog();
     await loadAdminData();
-    showToast(`${nickname} 的密码已重置`);
+    showToast(t("auth.resetSuccess", { name: nickname }));
   } catch (error) {
     setFormStatus(elements.adminPasswordStatus, errorMessage(error), true);
   } finally {
     button.disabled = false;
+  }
+}
+
+async function exportAdminBackup() {
+  elements.exportBackupButton.disabled = true;
+  setFormStatus(elements.backupExportStatus, t("backup.exporting"));
+  try {
+    const snapshot = await api("/api/admin/backup");
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sloop-backup-${todayISODate()}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setFormStatus(elements.backupExportStatus, t("backup.exported"));
+    showToast(t("backup.exported"));
+  } catch (error) {
+    setFormStatus(elements.backupExportStatus, errorMessage(error), true);
+  } finally {
+    elements.exportBackupButton.disabled = false;
+  }
+}
+
+function resetBackupImport() {
+  elements.backupImportForm.reset();
+  elements.backupFileName.textContent = t("backup.chooseFile");
+  elements.backupImportButton.disabled = true;
+  setFormStatus(elements.backupStatus, "");
+}
+
+function handleBackupFileSelection() {
+  const file = elements.backupFile.files?.[0];
+  elements.backupFileName.textContent = file?.name || t("backup.chooseFile");
+  setFormStatus(elements.backupStatus, "");
+  if (file && file.size > MAX_BACKUP_BYTES) {
+    elements.backupImportButton.disabled = true;
+    setFormStatus(elements.backupStatus, t("backup.fileTooLarge"), true);
+    return;
+  }
+  elements.backupImportButton.disabled = !file;
+}
+
+async function importAdminBackup(event) {
+  event.preventDefault();
+  const file = elements.backupFile.files?.[0];
+  if (!file) {
+    setFormStatus(elements.backupStatus, t("backup.chooseFile"), true);
+    return;
+  }
+  if (!window.confirm(t("confirm.importBackup"))) return;
+
+  elements.backupImportButton.disabled = true;
+  setFormStatus(elements.backupStatus, t("backup.importing"));
+  try {
+    const text = await file.text();
+    await api("/api/admin/backup", {
+      method: "POST",
+      body: text
+    });
+    resetBackupImport();
+    clearAuthenticatedState();
+    closeAuthDialog();
+    showView("builder");
+    openAuthDialog("login");
+    setAuthStatus(t("backup.loginAgain"));
+    showToast(t("backup.imported"));
+  } catch (error) {
+    setFormStatus(elements.backupStatus, errorMessage(error), true);
+    elements.backupImportButton.disabled = false;
   }
 }
 
@@ -2248,7 +2482,7 @@ async function submitInvite(event) {
     elements.inviteMaxUses.value = 1;
     elements.inviteExpiry.value = addDays(todayISODate(), 7);
     await loadAdminData();
-    showToast("邀请码已生成");
+    showToast(t("toast.inviteCreated"));
   } catch (error) {
     showToast(errorMessage(error), "error");
   } finally {
@@ -2264,6 +2498,7 @@ function showAdminTab(tab) {
   }
   elements.peoplePanel.hidden = tab !== "people";
   elements.invitesPanel.hidden = tab !== "invites";
+  elements.backupPanel.hidden = tab !== "backup";
 }
 
 function showView(view) {
@@ -2397,9 +2632,8 @@ function bindEvents() {
 
   elements.mobileCycleStrip.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-mobile-shift-id]");
-    if (!chip || chip.dataset.mobileShiftId === selectedShiftId) return;
-    selectedShiftId = chip.dataset.mobileShiftId;
-    renderMobileCycle();
+    if (!chip) return;
+    selectMobileCycleShift(chip.dataset.mobileShiftId);
   });
 
   elements.mobileShiftPanel.addEventListener("click", (event) => {
@@ -2426,6 +2660,7 @@ function bindEvents() {
     if (currentUser) openAccountDialog();
     else openAuthDialog("login");
   });
+  elements.languageButton.addEventListener("click", toggleLanguage);
   elements.authClose.addEventListener("click", closeAuthDialog);
   elements.authDialog.addEventListener("click", (event) => {
     if (event.target === elements.authDialog) closeAuthDialog();
@@ -2443,6 +2678,9 @@ function bindEvents() {
     if (event.target === elements.adminPasswordDialog) closeAdminPasswordDialog();
   });
   elements.adminPasswordForm.addEventListener("submit", handleAdminPasswordReset);
+  elements.exportBackupButton.addEventListener("click", exportAdminBackup);
+  elements.backupFile.addEventListener("change", handleBackupFileSelection);
+  elements.backupImportForm.addEventListener("submit", importAdminBackup);
 
   elements.shiftSettingsClose.addEventListener("click", closeShiftSettings);
   elements.shiftSettingsDone.addEventListener("click", closeShiftSettings);
@@ -2463,7 +2701,9 @@ function bindEvents() {
     const preset = getShiftPreset(input.dataset.id);
     if (!preset) return;
     if (input.dataset.presetField === "name") {
-      const name = cleanText(preset.name, 28) || (preset.kind === "off" ? "休息" : "班次");
+      const name =
+        cleanText(preset.name, 28) ||
+        (preset.kind === "off" ? t("preset.rest") : t("common.rest"));
       input.value = name;
       updateShiftPreset(preset.id, { name });
       return;
@@ -2530,16 +2770,16 @@ function bindEvents() {
     if (button.dataset.inviteAction === "copy") {
       try {
         await copyText(button.dataset.code);
-        showToast("邀请码已复制");
+        showToast(t("toast.inviteCopied"));
       } catch {
-        showToast("复制失败，请重试", "error");
+        showToast(t("toast.copyFailed"), "error");
       }
     }
     if (button.dataset.inviteAction === "disable") {
       try {
         await api(`/api/admin/invites/${button.dataset.id}`, { method: "DELETE" });
         await loadAdminData();
-        showToast("邀请码已停用");
+        showToast(t("toast.inviteDisabled"));
       } catch (error) {
         showToast(errorMessage(error), "error");
       }
@@ -2551,6 +2791,7 @@ async function initialize() {
   hydrateStaticIcons();
   shiftPresets = loadShiftPresets();
   state = loadStoredPlan() ?? createDefaultState();
+  localizeBuiltInData();
   ensureCyclePresetAssignments();
   renderPresets();
   syncFieldValues();

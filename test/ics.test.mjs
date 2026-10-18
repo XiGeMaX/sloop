@@ -233,6 +233,136 @@ function authRequest(path, token, body = null, method = "PATCH") {
   });
 }
 
+function createBackupFixture() {
+  const auth = createAuthFixture();
+  const invites = new Map([
+    [
+      "invite-1",
+      {
+        id: "invite-1",
+        code: "TEAM-2026",
+        created_by: "admin-1",
+        max_uses: 3,
+        uses: 1,
+        expires_at: 1999999999,
+        disabled: 0,
+        created_at: "2026-01-04T00:00:00.000Z"
+      }
+    ]
+  ]);
+  const calendars = new Map([
+    [
+      "calendar-1",
+      {
+        id: "calendar-1",
+        user_id: "member-1",
+        title: "四班轮转",
+        plan_json: JSON.stringify(normalizePlan(samplePlan)),
+        share_slug: "share-calendar-1",
+        created_at: "2026-01-05T00:00:00.000Z",
+        updated_at: "2026-01-06T00:00:00.000Z"
+      }
+    ]
+  ]);
+  const guestSubscriptions = new Map([
+    [
+      "guest-1",
+      {
+        plan_json: JSON.stringify(normalizePlan(samplePlan)),
+        months: 3,
+        created_at: "2026-01-07T00:00:00.000Z",
+        expires_at: 1999999999
+      }
+    ]
+  ]);
+  const db = {
+    users: auth.users,
+    sessions: auth.sessions,
+    invites,
+    calendars,
+    guestSubscriptions,
+    prepare(sql) {
+      let values = [];
+      const statement = {
+        bind(...nextValues) {
+          values = nextValues;
+          return statement;
+        },
+        async run() {
+          if (/DELETE FROM guest_subscriptions/i.test(sql)) {
+            guestSubscriptions.clear();
+          } else if (/DELETE FROM sessions/i.test(sql)) {
+            auth.sessions.clear();
+          } else if (/DELETE FROM calendars/i.test(sql)) {
+            calendars.clear();
+          } else if (/DELETE FROM invites/i.test(sql)) {
+            invites.clear();
+          } else if (/DELETE FROM users/i.test(sql)) {
+            auth.users.clear();
+          } else if (/INSERT INTO users/i.test(sql)) {
+            auth.users.set(values[0], {
+              id: values[0],
+              username: values[1],
+              nickname: values[2],
+              password_hash: values[3],
+              password_salt: values[4],
+              role: values[5],
+              status: values[6],
+              invite_code: values[7],
+              created_at: values[8],
+              approved_at: values[9],
+              approved_by: values[10]
+            });
+          } else if (/INSERT INTO invites/i.test(sql)) {
+            invites.set(values[0], {
+              id: values[0],
+              code: values[1],
+              created_by: values[2],
+              max_uses: values[3],
+              uses: values[4],
+              expires_at: values[5],
+              disabled: values[6],
+              created_at: values[7]
+            });
+          } else if (/INSERT INTO calendars/i.test(sql)) {
+            calendars.set(values[0], {
+              id: values[0],
+              user_id: values[1],
+              title: values[2],
+              plan_json: values[3],
+              share_slug: values[4],
+              created_at: values[5],
+              updated_at: values[6]
+            });
+          }
+          return { meta: { changes: 1 } };
+        },
+        async first() {
+          return auth.db.prepare(sql).bind(...values).first();
+        },
+        async all() {
+          if (/FROM users/i.test(sql)) {
+            return { results: [...auth.users.values()] };
+          }
+          if (/FROM invites/i.test(sql)) {
+            return { results: [...invites.values()] };
+          }
+          if (/FROM calendars/i.test(sql)) {
+            return { results: [...calendars.values()] };
+          }
+          return { results: [] };
+        }
+      };
+      return statement;
+    },
+    async batch(statements) {
+      for (const statement of statements) await statement.run();
+      return [];
+    }
+  };
+  return { ...auth, db, invites, calendars, guestSubscriptions };
+}
+
 async function createTestGuestPath(endpoint = "/api/guest-link") {
   const db = createGuestDb();
   const response = await worker.fetch(
@@ -394,6 +524,76 @@ test("lets an admin reset a member password and revoke all target sessions", asy
     member.password_hash,
     passwordHash("admin-reset-789", member.password_salt)
   );
+});
+
+test("exports a complete admin backup without sessions or guest subscriptions", async () => {
+  const { db, users } = createBackupFixture();
+  const forbidden = await worker.fetch(
+    authRequest("/api/admin/backup", "member-token", null, "GET"),
+    { DB: db }
+  );
+  assert.equal(forbidden.status, 403);
+
+  const response = await worker.fetch(
+    authRequest("/api/admin/backup", "admin-token", null, "GET"),
+    { DB: db }
+  );
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition"), /^attachment; filename="sloop-backup-/);
+
+  const snapshot = await response.json();
+  assert.equal(snapshot.format, "sloop-backup");
+  assert.equal(snapshot.version, 1);
+  assert.deepEqual(snapshot.counts, { users: 3, invites: 1, calendars: 1 });
+  assert.equal(snapshot.data.users[0].passwordHash, users.get("admin-1").password_hash);
+  assert.equal(snapshot.data.calendars[0].plan.cycle.length, 3);
+  assert.equal("sessions" in snapshot.data, false);
+  assert.equal("guestSubscriptions" in snapshot.data, false);
+});
+
+test("replaces all data from an admin backup and revokes every session", async () => {
+  const { db, users, sessions, invites, calendars, guestSubscriptions } = createBackupFixture();
+  const exportResponse = await worker.fetch(
+    authRequest("/api/admin/backup", "admin-token", null, "GET"),
+    { DB: db }
+  );
+  const snapshot = await exportResponse.json();
+  snapshot.data.users.find((user) => user.id === "member-1").nickname = "导入成员";
+
+  const response = await worker.fetch(
+    authRequest("/api/admin/backup", "admin-token", snapshot, "POST"),
+    { DB: db }
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    imported: { users: 3, invites: 1, calendars: 1 },
+    sessionsRevoked: true
+  });
+  assert.equal(users.get("member-1").nickname, "导入成员");
+  assert.equal(sessions.size, 0);
+  assert.equal(guestSubscriptions.size, 0);
+  assert.equal(invites.size, 1);
+  assert.equal(calendars.size, 1);
+});
+
+test("rejects an incomplete backup without modifying existing data", async () => {
+  const { db, users, sessions } = createBackupFixture();
+  const exportResponse = await worker.fetch(
+    authRequest("/api/admin/backup", "admin-token", null, "GET"),
+    { DB: db }
+  );
+  const snapshot = await exportResponse.json();
+  snapshot.data.users.find((user) => user.id === "admin-1").status = "disabled";
+
+  const response = await worker.fetch(
+    authRequest("/api/admin/backup", "admin-token", snapshot, "POST"),
+    { DB: db }
+  );
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "invalid_backup" });
+  assert.equal(users.size, 3);
+  assert.equal(sessions.size, 3);
 });
 
 test("starts the cycle from the selected shift for today", () => {

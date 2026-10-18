@@ -7,7 +7,14 @@ settings:
 importers:
 
   .:
+    dependencies:
+      i18next:
+        specifier: ^26.4.7
+        version: 26.4.7
     devDependencies:
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       wrangler:
         specifier: ^4.151.1
         version: 4.151.1
@@ -432,6 +439,14 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  i18next@26.4.7:
+    resolution: {integrity: sha512-p/3hqy6EcuqRs6wNwBYwGGC1fzBJSMxV9zMuN814ab/7QjdZbXfjXwuPZdQbngX6KDOTxM01uUiZyqmMB8ghZg==}
+    peerDependencies:
+      typescript: ^5 || ^6 || ^7
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
@@ -789,6 +804,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  i18next@26.4.7: {}
 
   kleur@4.1.5: {}
 

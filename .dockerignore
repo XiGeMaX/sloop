@@ -1,0 +1,10 @@
+node_modules
+.git
+.wrangler
+.dev.vars
+.DS_Store
+coverage
+public/app.bundle.js
+brand
+sloop-mobile-final.png
+README.md

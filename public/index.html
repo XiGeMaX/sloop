@@ -16,16 +16,25 @@
     <meta
       name="description"
       content="自由组合周期班次，生成可订阅的 ICS 日历链接。"
+      data-i18n-content="meta.description"
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Sloop · 轮转班表" />
-    <meta property="og:description" content="自由组合周期班次，生成可订阅的 ICS 日历链接。" />
+    <meta property="og:title" content="Sloop · 轮转班表" data-i18n-content="meta.title" />
+    <meta
+      property="og:description"
+      content="自由组合周期班次，生成可订阅的 ICS 日历链接。"
+      data-i18n-content="meta.description"
+    />
     <meta property="og:image" content="/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Sloop · 轮转班表" />
-    <meta name="twitter:description" content="自由组合周期班次，生成可订阅的 ICS 日历链接。" />
+    <meta name="twitter:title" content="Sloop · 轮转班表" data-i18n-content="meta.title" />
+    <meta
+      name="twitter:description"
+      content="自由组合周期班次，生成可订阅的 ICS 日历链接。"
+      data-i18n-content="meta.description"
+    />
     <meta name="twitter:image" content="/og-image.png" />
     <title>Sloop · 轮转班表</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -37,30 +46,62 @@
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="Sloop 首页" data-nav="builder">
+      <a class="brand" href="/" aria-label="Sloop 首页" data-nav="builder" data-i18n-aria-label="nav.home">
         <img class="brand-mark" src="/assets/brand/sloop-icon.svg" alt="" width="24" height="24" />
         <span class="brand-name">Sloop</span>
       </a>
 
-      <nav class="top-actions" aria-label="主导航">
-        <button class="nav-button is-active" type="button" data-view="builder" title="班表">
+      <nav class="top-actions" aria-label="主导航" data-i18n-aria-label="nav.main">
+        <button
+          class="nav-button is-active"
+          type="button"
+          data-view="builder"
+          title="班表"
+          data-i18n-title="nav.builder"
+        >
           <span data-icon="calendar" aria-hidden="true"></span>
-          <span class="nav-label">班表</span>
+          <span class="nav-label" data-i18n="nav.builder">班表</span>
         </button>
-        <button class="nav-button" id="navCalendars" type="button" data-view="calendars" title="我的周期" hidden>
+        <button
+          class="nav-button"
+          id="navCalendars"
+          type="button"
+          data-view="calendars"
+          title="我的周期"
+          data-i18n-title="nav.calendars"
+          hidden
+        >
           <span data-icon="layers" aria-hidden="true"></span>
-          <span class="nav-label">我的周期</span>
+          <span class="nav-label" data-i18n="nav.calendars">我的周期</span>
         </button>
-        <button class="nav-button" id="navAdmin" type="button" data-view="admin" title="人员管理" hidden>
+        <button
+          class="nav-button"
+          id="navAdmin"
+          type="button"
+          data-view="admin"
+          title="人员管理"
+          data-i18n-title="nav.admin"
+          hidden
+        >
           <span data-icon="users" aria-hidden="true"></span>
-          <span class="nav-label">人员管理</span>
+          <span class="nav-label" data-i18n="nav.admin">人员管理</span>
         </button>
-        <button class="account-button" id="authButton" type="button" title="账户">
+        <button
+          class="account-button"
+          id="authButton"
+          type="button"
+          title="账户"
+          data-i18n-title="nav.account"
+        >
           <span class="account-avatar" id="accountAvatar" data-icon="user" aria-hidden="true"></span>
           <span class="account-copy">
-            <strong id="accountName">登录</strong>
-            <small id="accountRole">游客</small>
+            <strong id="accountName" data-i18n="auth.login">登录</strong>
+            <small id="accountRole" data-i18n="role.guest">游客</small>
           </span>
+        </button>
+        <button class="language-button" id="languageButton" type="button">
+          <span data-icon="languages" aria-hidden="true"></span>
+          <span id="languageLabel">EN</span>
         </button>
       </nav>
     </header>
@@ -70,11 +111,11 @@
         <section class="editor" aria-labelledby="page-title">
           <header class="editor-heading">
             <div>
-              <p class="eyebrow">周期班表 / ICS</p>
-              <h1 id="page-title">轮转班次</h1>
+              <p class="eyebrow" data-i18n="builder.eyebrow">周期班表 / ICS</p>
+              <h1 id="page-title" data-i18n="builder.title">轮转班次</h1>
             </div>
             <label class="title-field">
-              <span>日历名称</span>
+              <span data-i18n="builder.calendarName">日历名称</span>
               <input id="calendarTitle" type="text" maxlength="64" autocomplete="off" />
             </label>
           </header>
@@ -83,41 +124,55 @@
             <div class="section-heading">
               <div class="section-heading-title">
                 <p class="section-index">01</p>
-                <h2 id="cycle-heading">周期组合</h2>
+                <h2 id="cycle-heading" data-i18n="builder.cycleHeading">周期组合</h2>
               </div>
               <button class="section-settings-trigger" type="button" data-shift-settings>
                 <span data-icon="settings" aria-hidden="true"></span>
-                <span>班次设置</span>
+                <span data-i18n="builder.shiftSettings">班次设置</span>
               </button>
             </div>
             <p class="section-meta" id="cycleMeta">0 天循环</p>
 
             <div class="today-summary">
-              <span class="today-summary-label">今天</span>
+              <span class="today-summary-label" data-i18n="builder.today">今天</span>
               <span class="today-summary-name" id="todayShiftName">白班</span>
               <span class="today-summary-time" id="todayShiftTime">08:00–20:00</span>
             </div>
 
-            <div class="preset-row" id="presetRow" aria-label="添加班次"></div>
+            <div
+              class="preset-row"
+              id="presetRow"
+              aria-label="添加班次"
+              data-i18n-aria-label="builder.addShift"
+            ></div>
 
             <div class="cycle-list" id="cycleList"></div>
 
-            <div class="mobile-cycle-composer" aria-label="移动端周期组合编辑器">
+            <div
+              class="mobile-cycle-composer"
+              aria-label="移动端周期组合编辑器"
+              data-i18n-aria-label="builder.mobileComposer"
+            >
               <div class="mobile-composer-heading">
                 <span class="mobile-composer-copy">
-                  <strong>调整组合</strong>
-                  <span>点选班次后在下方调整</span>
+                  <strong data-i18n="builder.mobileTitle">调整组合</strong>
+                  <span data-i18n="builder.mobileHint">点选班次后在下方调整</span>
                 </span>
               </div>
-              <div class="mobile-cycle-strip" id="mobileCycleStrip" aria-label="周期班次"></div>
+              <div
+                class="mobile-cycle-strip"
+                id="mobileCycleStrip"
+                aria-label="周期班次"
+                data-i18n-aria-label="builder.mobileCycle"
+              ></div>
               <div class="mobile-shift-panel" id="mobileShiftPanel"></div>
             </div>
 
             <div class="builder-footer">
               <label class="switch-row">
                 <span>
-                  <strong>休息日写入日历</strong>
-                  <small>以全天透明事件显示</small>
+                  <strong data-i18n="builder.includeRest">休息日写入日历</strong>
+                  <small data-i18n="builder.includeRestHint">以全天透明事件显示</small>
                 </span>
                 <input id="includeRest" type="checkbox" />
                 <span class="switch" aria-hidden="true"></span>
@@ -132,13 +187,13 @@
               <span class="summary-copy">
                 <span class="inspector-kicker">
                   <span class="status-light" aria-hidden="true"></span>
-                  <span>Live calendar</span>
+                  <span data-i18n="preview.live">Live calendar</span>
                 </span>
                 <span class="summary-title-row">
-                  <h2 id="preview-heading">轮转预览</h2>
+                  <h2 id="preview-heading" data-i18n="preview.heading">轮转预览</h2>
                   <span class="summary-coverage" id="coverageBadge">3 个月</span>
                 </span>
-                <span class="range-copy" id="rangeCopy">从今天开始</span>
+                <span class="range-copy" id="rangeCopy" data-i18n="preview.fromToday">从今天开始</span>
               </span>
               <span class="summary-chevron" data-icon="chevron" aria-hidden="true"></span>
             </summary>
@@ -146,7 +201,7 @@
             <div class="preview-content">
               <section class="cycle-map" aria-labelledby="map-heading">
                 <div class="inspector-section-heading">
-                  <h3 id="map-heading">循环序列</h3>
+                  <h3 id="map-heading" data-i18n="preview.sequence">循环序列</h3>
                   <span id="cycleLengthLabel">0 天</span>
                 </div>
                 <div class="sequence-track" id="sequenceTrack"></div>
@@ -154,7 +209,7 @@
 
               <section class="schedule-preview" aria-labelledby="schedule-heading">
                 <div class="inspector-section-heading">
-                  <h3 id="schedule-heading">接下来 8 天</h3>
+                  <h3 id="schedule-heading" data-i18n="preview.nextEight">接下来 8 天</h3>
                   <span id="eventEstimate">0 个事件</span>
                 </div>
                 <div class="schedule-list" id="scheduleList"></div>
@@ -164,17 +219,17 @@
 
           <section class="export-panel" aria-labelledby="export-heading">
             <div class="export-heading-row">
-              <h3 id="export-heading">订阅链接</h3>
+              <h3 id="export-heading" data-i18n="export.heading">订阅链接</h3>
               <span class="validity" id="validityBadge">
                 <span data-icon="check" aria-hidden="true"></span>
-                <span>准备就绪</span>
+                <span data-i18n="export.ready">准备就绪</span>
               </span>
             </div>
 
             <label class="coverage-control" id="coverageControl" hidden>
               <span class="coverage-control-copy">
-                <strong>订阅时长</strong>
-                <small>登录用户最长 24 个月</small>
+                <strong data-i18n="export.duration">订阅时长</strong>
+                <small data-i18n="export.maxMonths">登录用户最长 24 个月</small>
               </span>
               <span class="coverage-control-input">
                 <input
@@ -186,28 +241,38 @@
                   value="12"
                   inputmode="numeric"
                   aria-label="订阅时长，单位月"
+                  data-i18n-aria-label="export.durationAria"
                 />
-                <span>个月</span>
+                <span data-i18n="export.monthsUnit">个月</span>
               </span>
             </label>
 
             <div class="link-preview" id="linkPreview">
               <span class="link-icon" data-icon="link" aria-hidden="true"></span>
-              <span class="link-text" id="linkText">生成后显示日历链接</span>
-              <button class="mini-copy" id="copyLinkIcon" type="button" aria-label="复制订阅链接" disabled>
+              <span class="link-text" id="linkText" data-i18n="export.linkPlaceholder"
+                >生成后显示日历链接</span
+              >
+              <button
+                class="mini-copy"
+                id="copyLinkIcon"
+                type="button"
+                aria-label="复制订阅链接"
+                data-i18n-aria-label="export.copyAria"
+                disabled
+              >
                 <span data-icon="copy" aria-hidden="true"></span>
               </button>
             </div>
 
             <button class="primary-action" id="copyLink" type="button">
               <span id="primaryActionIcon" data-icon="download" aria-hidden="true"></span>
-              <span id="primaryActionLabel">下载 6 个月 .ics</span>
+              <span id="primaryActionLabel">生成并复制 3 个月临时订阅链接</span>
             </button>
 
             <div class="secondary-actions">
               <button id="saveCalendar" type="button" hidden>
                 <span data-icon="save" aria-hidden="true"></span>
-                <span id="saveCalendarLabel">保存周期</span>
+                <span id="saveCalendarLabel" data-i18n="export.save">保存周期</span>
               </button>
               <button id="downloadIcs" type="button">
                 <span data-icon="download" aria-hidden="true"></span>
@@ -215,11 +280,11 @@
               </button>
               <button id="openCalendar" type="button">
                 <span data-icon="calendarPlus" aria-hidden="true"></span>
-                <span>打开日历</span>
+                <span data-i18n="export.open">打开日历</span>
               </button>
             </div>
 
-            <p class="privacy-note" id="privacyNote">
+            <p class="privacy-note" id="privacyNote" data-i18n="export.guestPrivacy">
               推荐游客下载 .ics，最多覆盖 6 个月。临时订阅链接覆盖 3 个月，7 天后失效并定期清除。
             </p>
           </section>
@@ -229,12 +294,12 @@
       <section class="page-view" id="calendarsView" aria-labelledby="calendarsTitle" hidden>
         <header class="view-heading">
           <div>
-            <p class="eyebrow">已保存周期</p>
-            <h1 id="calendarsTitle">我的周期</h1>
+            <p class="eyebrow" data-i18n="saved.eyebrow">已保存周期</p>
+            <h1 id="calendarsTitle" data-i18n="saved.title">我的周期</h1>
           </div>
           <button class="view-primary" id="newCalendarButton" type="button">
             <span data-icon="plus" aria-hidden="true"></span>
-            <span>新建周期</span>
+            <span data-i18n="saved.new">新建周期</span>
           </button>
         </header>
         <section
@@ -247,19 +312,21 @@
             <span class="merged-subscription-icon" data-icon="layers" aria-hidden="true"></span>
             <div>
               <div class="merged-subscription-heading">
-                <h2 id="mergedSubscriptionTitle">合并订阅</h2>
+                <h2 id="mergedSubscriptionTitle" data-i18n="saved.merged">合并订阅</h2>
                 <span id="mergedCalendarCount">0 个周期</span>
                 <button class="merged-selection-clear" id="clearMergedSelection" type="button" hidden>
-                  清除
+                  <span data-i18n="common.clear">清除</span>
                 </button>
               </div>
-              <p id="mergedSubscriptionDescription">自动包含全部已保存周期</p>
+              <p id="mergedSubscriptionDescription" data-i18n="saved.mergedAuto">
+                自动包含全部已保存周期
+              </p>
               <code id="mergedSubscriptionLink"></code>
             </div>
           </div>
           <button class="view-primary merged-subscription-action" id="copyMergedSubscription" type="button">
             <span data-icon="copy" aria-hidden="true"></span>
-            <span id="mergedSubscriptionActionLabel">复制全部链接</span>
+            <span id="mergedSubscriptionActionLabel" data-i18n="saved.copyAll">复制全部链接</span>
           </button>
         </section>
         <div class="calendar-list" id="calendarList"></div>
@@ -268,26 +335,35 @@
       <section class="page-view admin-view" id="adminView" aria-labelledby="adminTitle" hidden>
         <header class="view-heading">
           <div>
-            <p class="eyebrow">管理员</p>
-            <h1 id="adminTitle">人员管理</h1>
+            <p class="eyebrow" data-i18n="admin.eyebrow">管理员</p>
+            <h1 id="adminTitle" data-i18n="admin.title">人员管理</h1>
           </div>
           <span class="admin-count" id="adminCount">0 位成员</span>
         </header>
 
-        <div class="admin-tabs" role="tablist" aria-label="管理项目">
+        <div
+          class="admin-tabs"
+          role="tablist"
+          aria-label="管理项目"
+          data-i18n-aria-label="admin.tabs"
+        >
           <button class="is-active" type="button" data-admin-tab="people" role="tab" aria-selected="true">
             <span data-icon="users" aria-hidden="true"></span>
-            <span>人员</span>
+            <span data-i18n="admin.people">人员</span>
           </button>
           <button type="button" data-admin-tab="invites" role="tab" aria-selected="false">
             <span data-icon="ticket" aria-hidden="true"></span>
-            <span>邀请码</span>
+            <span data-i18n="admin.invites">邀请码</span>
+          </button>
+          <button type="button" data-admin-tab="backup" role="tab" aria-selected="false">
+            <span data-icon="save" aria-hidden="true"></span>
+            <span data-i18n="admin.backup">数据备份</span>
           </button>
         </div>
 
         <section class="admin-panel" id="peoplePanel">
           <div class="admin-panel-heading">
-            <h2>成员与审批</h2>
+            <h2 data-i18n="admin.membersAndApprovals">成员与审批</h2>
             <span id="pendingCount">0 个待审批</span>
           </div>
           <div class="people-list" id="peopleList"></div>
@@ -297,11 +373,11 @@
           <div class="invite-layout">
             <form class="invite-form" id="inviteForm">
               <div class="form-heading">
-                <h2>生成邀请码</h2>
-                <span>可留空自动生成</span>
+                <h2 data-i18n="admin.inviteHeading">生成邀请码</h2>
+                <span data-i18n="admin.inviteOptional">可留空自动生成</span>
               </div>
               <label>
-                <span>邀请码</span>
+                <span data-i18n="admin.inviteCode">邀请码</span>
                 <input
                   id="inviteCode"
                   type="text"
@@ -309,63 +385,158 @@
                   autocapitalize="characters"
                   autocomplete="off"
                   placeholder="例如 SLOOP-2026"
+                  data-i18n-placeholder="admin.inviteExample"
                 />
               </label>
               <div class="form-row">
                 <label>
-                  <span>可用次数</span>
+                  <span data-i18n="admin.maxUses">可用次数</span>
                   <input id="inviteMaxUses" type="number" min="1" max="100" value="1" inputmode="numeric" />
                 </label>
                 <label>
-                  <span>有效期</span>
+                  <span data-i18n="admin.expiry">有效期</span>
                   <input id="inviteExpiry" type="date" />
                 </label>
               </div>
               <button class="view-primary" type="submit">
                 <span data-icon="ticket" aria-hidden="true"></span>
-                <span>生成邀请码</span>
+                <span data-i18n="admin.generateInvite">生成邀请码</span>
               </button>
             </form>
 
             <div class="invite-list-wrap">
               <div class="admin-panel-heading">
-                <h2>邀请码</h2>
+                <h2 data-i18n="admin.inviteList">邀请码</h2>
                 <span id="inviteCount">0 个</span>
               </div>
               <div class="invite-list" id="inviteList"></div>
             </div>
           </div>
         </section>
+
+        <section class="admin-panel" id="backupPanel" hidden>
+          <div class="admin-panel-heading">
+            <h2 data-i18n="backup.title">数据备份</h2>
+            <span data-i18n="backup.hint">不包含短期游客订阅</span>
+          </div>
+          <div class="backup-layout">
+            <section class="backup-block">
+              <div class="backup-block-heading">
+                <span class="backup-block-icon" data-icon="download" aria-hidden="true"></span>
+                <div>
+                  <h3 data-i18n="backup.exportTitle">导出备份</h3>
+                  <p data-i18n="backup.exportDescription">包含用户、密码凭据、邀请码和全部周期。</p>
+                </div>
+              </div>
+              <button class="view-primary backup-action" id="exportBackupButton" type="button">
+                <span data-icon="download" aria-hidden="true"></span>
+                <span data-i18n="backup.exportAction">导出 JSON 备份</span>
+              </button>
+              <p class="form-status" id="backupExportStatus" aria-live="polite"></p>
+            </section>
+
+            <section class="backup-block">
+              <div class="backup-block-heading">
+                <span class="backup-block-icon" data-icon="save" aria-hidden="true"></span>
+                <div>
+                  <h3 data-i18n="backup.importTitle">导入备份</h3>
+                  <p data-i18n="backup.importDescription">校验后整体覆盖当前数据，并撤销全部登录会话。</p>
+                </div>
+              </div>
+              <form class="backup-import-form" id="backupImportForm">
+                <label class="backup-file-picker">
+                  <input
+                    id="backupFile"
+                    type="file"
+                    accept="application/json,.json"
+                    data-i18n-aria-label="backup.chooseFile"
+                  />
+                  <span data-icon="save" aria-hidden="true"></span>
+                  <span id="backupFileName" data-i18n="backup.chooseFile">选择备份文件</span>
+                </label>
+                <button class="view-primary backup-action" id="backupImportButton" type="submit" disabled>
+                  <span data-icon="rotate" aria-hidden="true"></span>
+                  <span data-i18n="backup.importAction">导入并覆盖</span>
+                </button>
+                <p class="form-status" id="backupStatus" aria-live="polite"></p>
+              </form>
+            </section>
+          </div>
+          <p class="backup-security-note" data-i18n="backup.security">
+            备份文件包含账户密码哈希，应作为敏感文件保管。导入成功后请使用备份中的管理员账号重新登录。
+          </p>
+        </section>
       </section>
     </main>
 
     <dialog class="shift-settings-dialog" id="shiftSettingsDialog" aria-labelledby="shiftSettingsTitle">
       <div class="dialog-handle" aria-hidden="true"></div>
-      <button class="dialog-close" id="shiftSettingsClose" type="button" aria-label="关闭">
+      <button
+        class="dialog-close"
+        id="shiftSettingsClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
         <span data-icon="close" aria-hidden="true"></span>
       </button>
       <div class="shift-settings-heading">
-        <p class="eyebrow">班次库</p>
-        <h2 id="shiftSettingsTitle">班次设置</h2>
+        <p class="eyebrow" data-i18n="shiftSettings.library">班次库</p>
+        <h2 id="shiftSettingsTitle" data-i18n="shiftSettings.title">班次设置</h2>
       </div>
       <div class="shift-preset-list" id="shiftPresetList"></div>
       <button class="shift-preset-add" id="addShiftPreset" type="button">
         <span data-icon="plus" aria-hidden="true"></span>
-        <span>添加自定义班次</span>
+        <span data-i18n="shiftSettings.add">添加自定义班次</span>
       </button>
-      <button class="view-primary shift-settings-done" id="shiftSettingsDone" type="button">完成</button>
+      <button
+        class="view-primary shift-settings-done"
+        id="shiftSettingsDone"
+        type="button"
+        data-i18n="shiftSettings.done"
+      >
+        完成
+      </button>
     </dialog>
 
     <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
       <div class="dialog-handle" aria-hidden="true"></div>
-      <button class="dialog-close" id="authClose" type="button" aria-label="关闭">
+      <button
+        class="dialog-close"
+        id="authClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
         <span data-icon="close" aria-hidden="true"></span>
       </button>
-      <h2 id="authTitle">账户</h2>
+      <h2 id="authTitle" data-i18n="auth.account">账户</h2>
 
-      <div class="auth-tabs" role="tablist" aria-label="登录或注册">
-        <button class="is-active" type="button" data-auth-tab="login" role="tab" aria-selected="true">登录</button>
-        <button type="button" data-auth-tab="register" role="tab" aria-selected="false">注册</button>
+      <div
+        class="auth-tabs"
+        role="tablist"
+        aria-label="登录或注册"
+        data-i18n-aria-label="auth.tabs"
+      >
+        <button
+          class="is-active"
+          type="button"
+          data-auth-tab="login"
+          role="tab"
+          aria-selected="true"
+          data-i18n="auth.login"
+        >
+          登录
+        </button>
+        <button
+          type="button"
+          data-auth-tab="register"
+          role="tab"
+          aria-selected="false"
+          data-i18n="auth.register"
+        >
+          注册
+        </button>
       </div>
 
       <div class="account-panel" id="accountPanel" hidden>
@@ -382,12 +553,12 @@
 
         <form class="account-form" id="profileForm">
           <div class="account-section-heading">
-            <h3>个人资料</h3>
-            <span>登录与显示名称</span>
+            <h3 data-i18n="auth.profile">个人资料</h3>
+            <span data-i18n="auth.profileHint">登录与显示名称</span>
           </div>
           <div class="account-field-grid">
             <label>
-              <span>用户名</span>
+              <span data-i18n="auth.username">用户名</span>
               <input
                 name="username"
                 type="text"
@@ -401,25 +572,27 @@
               />
             </label>
             <label>
-              <span>昵称</span>
+              <span data-i18n="auth.nickname">昵称</span>
               <input name="nickname" type="text" autocomplete="nickname" maxlength="30" required />
             </label>
           </div>
-          <p class="form-note">修改用户名后需使用新用户名登录，订阅链接保持不变。</p>
+          <p class="form-note" data-i18n="auth.profileNote">
+            修改用户名后需使用新用户名登录，订阅链接保持不变。
+          </p>
           <button class="account-save" id="profileSubmit" type="submit">
             <span data-icon="save" aria-hidden="true"></span>
-            <span>保存资料</span>
+            <span data-i18n="auth.saveProfile">保存资料</span>
           </button>
           <p class="form-status" id="profileStatus" aria-live="polite"></p>
         </form>
 
         <form class="account-form" id="passwordForm">
           <div class="account-section-heading">
-            <h3>修改密码</h3>
-            <span>其他设备将退出登录</span>
+            <h3 data-i18n="auth.changePassword">修改密码</h3>
+            <span data-i18n="auth.changePasswordHint">其他设备将退出登录</span>
           </div>
           <label>
-            <span>当前密码</span>
+            <span data-i18n="auth.currentPassword">当前密码</span>
             <input
               name="currentPassword"
               type="password"
@@ -431,7 +604,7 @@
           </label>
           <div class="account-field-grid">
             <label>
-              <span>新密码</span>
+              <span data-i18n="auth.newPassword">新密码</span>
               <input
                 name="newPassword"
                 type="password"
@@ -442,7 +615,7 @@
               />
             </label>
             <label>
-              <span>确认新密码</span>
+              <span data-i18n="auth.confirmPassword">确认新密码</span>
               <input
                 name="confirmPassword"
                 type="password"
@@ -455,17 +628,19 @@
           </div>
           <button class="account-save" id="passwordSubmit" type="submit">
             <span data-icon="settings" aria-hidden="true"></span>
-            <span>更新密码</span>
+            <span data-i18n="auth.updatePassword">更新密码</span>
           </button>
           <p class="form-status" id="passwordStatus" aria-live="polite"></p>
         </form>
 
-        <button class="account-logout" id="logoutButton" type="button">退出登录</button>
+        <button class="account-logout" id="logoutButton" type="button" data-i18n="auth.logout">
+          退出登录
+        </button>
       </div>
 
       <form class="auth-form" id="loginForm">
         <label>
-          <span>用户名</span>
+          <span data-i18n="auth.username">用户名</span>
           <input
             name="username"
             type="text"
@@ -479,15 +654,15 @@
           />
         </label>
         <label>
-          <span>密码</span>
+          <span data-i18n="auth.password">密码</span>
           <input name="password" type="password" autocomplete="current-password" minlength="8" required />
         </label>
-        <button class="view-primary" type="submit">登录</button>
+        <button class="view-primary" type="submit" data-i18n="auth.login">登录</button>
       </form>
 
       <form class="auth-form" id="registerForm" hidden>
         <label>
-          <span>用户名</span>
+          <span data-i18n="auth.username">用户名</span>
           <input
             name="username"
             type="text"
@@ -501,15 +676,15 @@
           />
         </label>
         <label>
-          <span>昵称</span>
+          <span data-i18n="auth.nickname">昵称</span>
           <input name="nickname" type="text" autocomplete="nickname" maxlength="30" required />
         </label>
         <label>
-          <span>密码</span>
+          <span data-i18n="auth.password">密码</span>
           <input name="password" type="password" autocomplete="new-password" minlength="8" required />
         </label>
         <label>
-          <span>邀请码</span>
+          <span data-i18n="auth.inviteCode">邀请码</span>
           <input
             name="inviteCode"
             type="text"
@@ -517,10 +692,15 @@
             autocapitalize="characters"
             maxlength="32"
             placeholder="选填"
+            data-i18n-placeholder="auth.inviteOptional"
           />
         </label>
-        <button class="view-primary" type="submit">提交注册</button>
-        <p class="form-note" id="registerNote">邀请码注册直接通过；其他注册申请需要管理员审批。</p>
+        <button class="view-primary" type="submit" data-i18n="auth.submitRegister">
+          提交注册
+        </button>
+        <p class="form-note" id="registerNote" data-i18n="auth.registerNote">
+          邀请码注册直接通过；其他注册申请需要管理员审批。
+        </p>
       </form>
 
       <p class="auth-status" id="authStatus" aria-live="polite"></p>
@@ -528,14 +708,20 @@
 
     <dialog class="auth-dialog admin-password-dialog" id="adminPasswordDialog" aria-labelledby="adminPasswordTitle">
       <div class="dialog-handle" aria-hidden="true"></div>
-      <button class="dialog-close" id="adminPasswordClose" type="button" aria-label="关闭">
+      <button
+        class="dialog-close"
+        id="adminPasswordClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
         <span data-icon="close" aria-hidden="true"></span>
       </button>
-      <h2 id="adminPasswordTitle">重置密码</h2>
+      <h2 id="adminPasswordTitle" data-i18n="auth.resetPassword">重置密码</h2>
       <p class="admin-reset-target" id="adminPasswordTarget"></p>
       <form class="auth-form" id="adminPasswordForm">
         <label>
-          <span>新密码</span>
+          <span data-i18n="auth.newPassword">新密码</span>
           <input
             name="newPassword"
             type="password"
@@ -546,7 +732,7 @@
           />
         </label>
         <label>
-          <span>确认新密码</span>
+          <span data-i18n="auth.confirmPassword">确认新密码</span>
           <input
             name="confirmPassword"
             type="password"
@@ -556,10 +742,12 @@
             required
           />
         </label>
-        <p class="form-note">重置后，该用户在所有设备上的登录会话将失效。</p>
+        <p class="form-note" data-i18n="auth.resetNote">
+          重置后，该用户在所有设备上的登录会话将失效。
+        </p>
         <button class="view-primary" type="submit">
           <span data-icon="settings" aria-hidden="true"></span>
-          <span>重置密码</span>
+          <span data-i18n="auth.resetPassword">重置密码</span>
         </button>
         <p class="form-status" id="adminPasswordStatus" aria-live="polite"></p>
       </form>
@@ -568,9 +756,11 @@
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
     <noscript>
-      <p class="no-script">Sloop 需要 JavaScript 才能组合班次并生成日历链接。</p>
+      <p class="no-script" data-i18n="noscript">
+        Sloop 需要 JavaScript 才能组合班次并生成日历链接。
+      </p>
     </noscript>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.bundle.js"></script>
   </body>
 </html>
