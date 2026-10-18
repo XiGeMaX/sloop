@@ -591,8 +591,8 @@ function buildCalendar(planInput, options = {}) {
             restEnd.getUTCFullYear(),
             restEnd.getUTCMonth() + 1,
             restEnd.getUTCDate(),
-            restHour,
-            restMinute,
+            0,
+            0,
             plan.timezone
           );
           lines.push(`DTSTART:${formatIcsUtc(restStartUtc)}`);

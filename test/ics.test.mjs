@@ -747,16 +747,25 @@ test("starts the cycle from the selected shift for today", () => {
   assert.match(calendar, /DTEND:20261019T000000Z/);
 });
 
-test("starts post-night rest when the overnight shift ends", () => {
+test("ends post-night rest at the end of the same day", () => {
   const calendar = buildCalendar(normalizePlan(samplePlan), {
     startDate: "2026-10-18",
     months: 1,
     now: testNow
   });
+  const restEvent = calendar
+    .split("BEGIN:VEVENT")
+    .find(
+      (event) =>
+        event.includes("SUMMARY:休息") &&
+        event.includes("DTSTART:20261019T000000Z")
+    );
+
+  assert.ok(restEvent);
   assert.match(calendar, /DTSTART:20261018T120000Z/);
   assert.match(calendar, /DTEND:20261019T000000Z/);
-  assert.match(calendar, /DTSTART:20261019T000000Z/);
-  assert.match(calendar, /DTEND:20261020T000000Z/);
+  assert.match(restEvent, /DTEND:20261019T160000Z/);
+  assert.doesNotMatch(restEvent, /DTEND:20261020T000000Z/);
   assert.doesNotMatch(calendar, /DTSTART;VALUE=DATE:20261019/);
   assert.match(calendar, /TRANSP:TRANSPARENT/);
 });
