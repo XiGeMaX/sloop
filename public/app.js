@@ -14,6 +14,7 @@ import {
   formatTimeZoneOffset,
   normalizeTimeZone
 } from "./timezone.js";
+import { minutesRemainingInDay } from "./rest-duration.js";
 
 const STORAGE_KEY = "sloop.plan.v2";
 const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
@@ -649,6 +650,16 @@ function restStartForIndex(index) {
   return isOvernightShift(previous) ? previous.end : null;
 }
 
+function restRemainingLabel(time) {
+  const minutes = minutesRemainingInDay(time);
+  if (minutes === null) return "";
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder
+    ? t("time.durationHoursMinutes", { hours, minutes: remainder })
+    : t("time.durationHours", { hours });
+}
+
 function shiftTimeLabel(shift, restStart = null) {
   if (shift.kind === "off") {
     return restStart ? t("time.restStart", { time: restStart }) : t("time.allDay");
@@ -915,7 +926,10 @@ function renderCycle(options = {}) {
           </div>
             <span class="off-label">${
               restStartForIndex(index)
-                ? t("cycle.overnightRest", { time: restStartForIndex(index) })
+                ? t("cycle.overnightRest", {
+                    time: restStartForIndex(index),
+                    duration: restRemainingLabel(restStartForIndex(index))
+                  })
                 : t("cycle.restNoCalendar")
             }</span>
 
@@ -1060,7 +1074,10 @@ function renderMobileCycle() {
             <small data-mobile-chip-time>${
               shift.kind === "off"
                 ? restStartForIndex(index)
-                  ? t("cycle.mobileRest", { time: restStartForIndex(index) })
+                  ? t("cycle.mobileRest", {
+                      time: restStartForIndex(index),
+                      duration: restRemainingLabel(restStartForIndex(index))
+                    })
                   : t("cycle.mobileAllDayRest")
                 : shiftTimeLabel(shift)
             }</small>
