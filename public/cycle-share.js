@@ -1,7 +1,10 @@
 const SHARE_TYPE = "sloop-cycle-share";
 const SHARE_VERSION = 1;
+const SHARE_WIRE_VERSION = 1;
+const COMPRESSED_SHARE_PREFIX = "z.";
 const MAX_SHARE_INPUT_LENGTH = 24000;
 const MAX_SHARE_TOKEN_LENGTH = 20000;
+const MAX_DECODED_SHARE_LENGTH = 100000;
 
 function planCycle(plan) {
   const cycle = plan?.c ?? plan?.cycle;
@@ -45,8 +48,7 @@ export function presetSignature(preset) {
   ].join("\u0000");
 }
 
-function binaryFromText(value) {
-  const bytes = new TextEncoder().encode(value);
+function binaryFromBytes(bytes) {
   let binary = "";
   for (let index = 0; index < bytes.length; index += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
@@ -54,24 +56,77 @@ function binaryFromText(value) {
   return binary;
 }
 
-function textFromBinary(value) {
-  const bytes = Uint8Array.from(value, (character) => character.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-function encodeBase64Url(value) {
-  return btoa(binaryFromText(value))
+function encodeBase64UrlBytes(bytes) {
+  return btoa(binaryFromBytes(bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 }
 
-function decodeBase64Url(value) {
+function decodeBase64UrlBytes(value) {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(
     Math.ceil(value.length / 4) * 4,
     "="
   );
-  return textFromBinary(atob(padded));
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+}
+
+async function compressText(value) {
+  const stream = new Blob([new TextEncoder().encode(value)])
+    .stream()
+    .pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function decompressText(value) {
+  const stream = new Blob([value])
+    .stream()
+    .pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Response(stream).text();
+}
+
+function packSharePackage(sharePackage) {
+  const presets = Array.isArray(sharePackage.presets) ? sharePackage.presets : [];
+  return [
+    SHARE_WIRE_VERSION,
+    sharePackage.plan,
+    presets.map((preset) => [
+      String(preset?.id ?? ""),
+      preset?.kind === "off" ? "o" : "w",
+      String(preset?.name ?? "").slice(0, 28),
+      String(preset?.start ?? ""),
+      String(preset?.end ?? ""),
+      Number(preset?.endDayOffset ?? 0),
+      String(preset?.tone ?? "sky"),
+      preset?.visibleOnHome === false ? 0 : 1
+    ])
+  ];
+}
+
+function unpackSharePackage(value) {
+  if (!Array.isArray(value) || value[0] !== SHARE_WIRE_VERSION) {
+    throw new Error("invalid_share_link");
+  }
+  const presets = Array.isArray(value[2]) ? value[2] : [];
+  return {
+    v: SHARE_VERSION,
+    type: SHARE_TYPE,
+    plan: value[1],
+    presets: presets.map((preset) =>
+      Array.isArray(preset)
+        ? {
+            id: String(preset[0] ?? ""),
+            kind: preset[1] === "o" ? "off" : "work",
+            name: String(preset[2] ?? ""),
+            start: String(preset[3] ?? ""),
+            end: String(preset[4] ?? ""),
+            endDayOffset: Number(preset[5] ?? 0),
+            tone: String(preset[6] ?? "sky"),
+            visibleOnHome: preset[7] !== 0
+          }
+        : preset
+    )
+  };
 }
 
 export function buildCycleSharePackage(plan, presets) {
@@ -107,11 +162,19 @@ export function buildCycleSharePackage(plan, presets) {
   };
 }
 
-export function encodeCycleSharePackage(sharePackage) {
-  const token = encodeBase64Url(JSON.stringify(sharePackage));
-  if (token.length > MAX_SHARE_TOKEN_LENGTH) {
-    throw new Error("share_link_too_large");
+export async function encodeCycleSharePackage(sharePackage) {
+  if (typeof CompressionStream !== "function") {
+    throw new Error("share_compression_unavailable");
   }
+
+  let compressed;
+  try {
+    compressed = await compressText(JSON.stringify(packSharePackage(sharePackage)));
+  } catch {
+    throw new Error("share_compression_unavailable");
+  }
+  const token = `${COMPRESSED_SHARE_PREFIX}${encodeBase64UrlBytes(compressed)}`;
+  if (token.length > MAX_SHARE_TOKEN_LENGTH) throw new Error("share_link_too_large");
   return token;
 }
 
@@ -119,9 +182,7 @@ function extractShareToken(input) {
   const value = String(input ?? "").trim();
   if (!value) throw new Error("invalid_share_link");
   if (value.length > MAX_SHARE_INPUT_LENGTH) throw new Error("share_link_too_large");
-  if (value.startsWith("{")) return value;
-
-  const match = /(?:[#?&]share=|^)([A-Za-z0-9_-]+)$/.exec(value);
+  const match = /(?:[#?&]share=|^)([A-Za-z0-9_.-]+)$/.exec(value);
   if (match) return match[1];
 
   try {
@@ -135,14 +196,30 @@ function extractShareToken(input) {
   throw new Error("invalid_share_link");
 }
 
-export function decodeCycleShareInput(input) {
+export async function decodeCycleShareInput(input) {
   let parsed;
   try {
     const token = extractShareToken(input);
-    const json = token.startsWith("{") ? token : decodeBase64Url(token);
-    parsed = JSON.parse(json);
+    if (!token.startsWith(COMPRESSED_SHARE_PREFIX)) {
+      throw new Error("invalid_share_link");
+    }
+    if (typeof DecompressionStream !== "function") {
+      throw new Error("share_compression_unavailable");
+    }
+    const json = await decompressText(
+      decodeBase64UrlBytes(token.slice(COMPRESSED_SHARE_PREFIX.length))
+    );
+    if (new TextEncoder().encode(json).byteLength > MAX_DECODED_SHARE_LENGTH) {
+      throw new Error("share_link_too_large");
+    }
+    parsed = unpackSharePackage(JSON.parse(json));
   } catch (error) {
-    if (error?.message === "share_link_too_large") throw error;
+    if (
+      error?.message === "share_link_too_large" ||
+      error?.message === "share_compression_unavailable"
+    ) {
+      throw error;
+    }
     throw new Error("invalid_share_link");
   }
   if (

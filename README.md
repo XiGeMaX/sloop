@@ -53,7 +53,7 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 
 **编排轮班**
 
-- 一个周期包含 1 到 35 天，班次可拖着排序，也可用键盘调整。
+- 一个周期至少包含 1 天，天数不设固定上限；班次可拖着排序，也可用键盘调整。
 - 默认提供白班、夜班和休息，全部班次预设合计最多 12 个。
 - 工作班次使用 24 小时制；结束时间不晚于开始时间时按跨夜处理。
 - 每个班次可从 12 种颜色中选择，并同步显示在编辑区、预览和日历事件中。
@@ -305,7 +305,7 @@ The result can be downloaded as an `.ics` file or exposed as a subscription URL.
 
 **Build a rotation**
 
-- Create a cycle of 1 to 35 days and reorder entries by drag and drop or the keyboard.
+- Create a cycle with at least one day and no fixed upper limit, then reorder entries by drag and drop or the keyboard.
 - Start with day, night, and rest shifts, then keep up to 12 shift presets in total.
 - Set working shifts with 24-hour times. An end time at or before the start time becomes an overnight shift.
 - Pick from 12 colors that carry through the editor, preview, and generated events.

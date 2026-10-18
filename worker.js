@@ -5,7 +5,6 @@ import {
   shiftDurationMinutes
 } from "./public/shift-time.js";
 
-const MAX_CYCLE_DAYS = 35;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
 const DEFAULT_BACKWARD_MONTHS = 3;
@@ -134,7 +133,7 @@ function normalizePlan(raw) {
   }
 
   const sourceCycle = raw.c ?? raw.cycle;
-  if (!Array.isArray(sourceCycle) || sourceCycle.length === 0 || sourceCycle.length > MAX_CYCLE_DAYS) {
+  if (!Array.isArray(sourceCycle) || sourceCycle.length === 0) {
     throw new ApiError(400, "invalid_cycle");
   }
 

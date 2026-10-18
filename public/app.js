@@ -590,7 +590,7 @@ function cleanTime(value, fallback) {
 function normalizeClientPlan(raw) {
   if (!raw || typeof raw !== "object") throw new Error("invalid plan");
   const sourceCycle = raw.c ?? raw.cycle;
-  if (!Array.isArray(sourceCycle) || sourceCycle.length === 0 || sourceCycle.length > 35) {
+  if (!Array.isArray(sourceCycle) || sourceCycle.length === 0) {
     throw new Error("invalid cycle");
   }
 
@@ -1731,10 +1731,6 @@ function scheduleSave() {
 }
 
 function addShift(preset, options = {}) {
-  if (state.cycle.length >= 35) {
-    showToast(t("cycle.maxDays"), "error");
-    return;
-  }
   const lockedScrollY = pageScrollLocked ? window.scrollY : null;
   const shift = makeShift(preset);
   state.cycle.push(shift);
@@ -2707,15 +2703,15 @@ function takeSharedCycleInputFromLocation() {
   return input;
 }
 
-function buildCycleShareLink(calendar) {
+async function buildCycleShareLink(calendar) {
   const sharePackage = buildCycleSharePackage(calendar.plan, shiftPresets);
-  const token = encodeCycleSharePackage(sharePackage);
+  const token = await encodeCycleSharePackage(sharePackage);
   return `${window.location.origin}${window.location.pathname}#share=${token}`;
 }
 
-function openCycleShareDialog(calendar) {
+async function openCycleShareDialog(calendar) {
   try {
-    const link = buildCycleShareLink(calendar);
+    const link = await buildCycleShareLink(calendar);
     activeShareCalendar = calendar;
     elements.cycleShareDescription.textContent = t("saved.shareDescription", {
       name: localizeBuiltInName(calendar.title)
@@ -2853,7 +2849,7 @@ async function importSharedCycle(event) {
   elements.cycleImportSubmit.disabled = true;
   setFormStatus(elements.cycleImportStatus, t("saved.importing"));
   try {
-    const sharePackage = decodeCycleShareInput(input);
+    const sharePackage = await decodeCycleShareInput(input);
     const importedState = await prepareImportedCycle(sharePackage);
     await api("/api/calendars", {
       method: "POST",
@@ -3836,7 +3832,7 @@ function bindEvents() {
     const calendar = calendars.find((item) => item.id === button.dataset.id);
     if (!calendar) return;
     if (button.dataset.calendarAction === "copy") await copyCalendarLink(calendar);
-    if (button.dataset.calendarAction === "share") openCycleShareDialog(calendar);
+    if (button.dataset.calendarAction === "share") await openCycleShareDialog(calendar);
     if (button.dataset.calendarAction === "edit") loadCalendarIntoBuilder(calendar);
     if (button.dataset.calendarAction === "delete") await deleteSavedCalendar(calendar);
   });

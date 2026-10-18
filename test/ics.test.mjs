@@ -357,6 +357,46 @@ test("preserves shift preset references when normalizing plans", () => {
   assert.equal(plan.cycle[0].presetId, "day");
 });
 
+test("supports shift cycles longer than 35 days", () => {
+  const cycle = Array.from({ length: 40 }, (_, index) => [
+    "w",
+    `班次 ${index + 1}`,
+    "08:00",
+    "20:00",
+    "sky"
+  ]);
+  const plan = normalizePlan({ ...samplePlan, i: 0, c: cycle });
+  const calendar = buildCalendar(plan, {
+    startDate: "2026-10-18",
+    months: 2,
+    now: testNow
+  });
+  const events = calendar.split("BEGIN:VEVENT").slice(1);
+
+  assert.equal(plan.cycle.length, 40);
+  assert.ok(
+    events.some(
+      (event) =>
+        event.includes("DTSTART:20261121T000000Z") &&
+        event.includes("X-SLOOP-CYCLE-DAY:35")
+    )
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.includes("DTSTART:20261122T000000Z") &&
+        event.includes("X-SLOOP-CYCLE-DAY:36")
+    )
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.includes("DTSTART:20261127T000000Z") &&
+        event.includes("X-SLOOP-CYCLE-DAY:1")
+    )
+  );
+});
+
 test("supports 24-hour and multi-day shifts with end day offsets", () => {
   const plan = normalizePlan({
     ...samplePlan,

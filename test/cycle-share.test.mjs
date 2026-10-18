@@ -47,15 +47,28 @@ test("packs plans with only the shift presets they reference", () => {
   assert.equal(share.presets[1].visibleOnHome, false);
 });
 
-test("round-trips share links and accepts JSON payloads", () => {
+test("round-trips compressed share links and rejects JSON payloads", async () => {
   const share = buildCycleSharePackage(plan, presets);
-  const token = encodeCycleSharePackage(share);
-  const decoded = decodeCycleShareInput(
+  const token = await encodeCycleSharePackage(share);
+  const decoded = await decodeCycleShareInput(
     `https://sloop.example/#share=${token}`
   );
   assert.equal(decoded.plan.t, plan.t);
   assert.equal(decoded.presets[0].id, "day");
-  assert.equal(decodeCycleShareInput(JSON.stringify(share)).presets.length, 2);
+  await assert.rejects(decodeCycleShareInput(JSON.stringify(share)), /invalid_share_link/);
+});
+
+test("compresses share links and rejects legacy links", async () => {
+  const share = buildCycleSharePackage(plan, presets);
+  const legacyToken = Buffer.from(JSON.stringify(share)).toString("base64url");
+  const token = await encodeCycleSharePackage(share);
+
+  assert.match(token, /^z\./);
+  assert.ok(token.length < legacyToken.length / 2);
+  await assert.rejects(
+    decodeCycleShareInput(`https://sloop.example/#share=${legacyToken}`),
+    /invalid_share_link/
+  );
 });
 
 test("matches equivalent presets and reports missing ones", () => {
@@ -66,7 +79,7 @@ test("matches equivalent presets and reports missing ones", () => {
   assert.equal(missing[0].id, "night");
 });
 
-test("rejects malformed share input", () => {
-  assert.throws(() => decodeCycleShareInput("not-a-share"), /invalid_share_link/);
-  assert.throws(() => decodeCycleShareInput(""), /invalid_share_link/);
+test("rejects malformed share input", async () => {
+  await assert.rejects(decodeCycleShareInput("not-a-share"), /invalid_share_link/);
+  await assert.rejects(decodeCycleShareInput(""), /invalid_share_link/);
 });
