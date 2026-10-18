@@ -11,12 +11,12 @@
     {
       "binding": "DB",
       "database_name": "sloop-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "8b000c83-1702-43f0-8084-e7b19dfeb8f8",
       "migrations_dir": "migrations"
     }
   ],
   "vars": {
-    "APP_ENV": "development",
+    "APP_ENV": "production",
     "DEFAULT_TIMEZONE": "Asia/Shanghai"
   },
   "triggers": {
