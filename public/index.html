@@ -471,18 +471,34 @@
 
     <dialog class="shift-settings-dialog" id="shiftSettingsDialog" aria-labelledby="shiftSettingsTitle">
       <div class="dialog-handle" aria-hidden="true"></div>
-      <button
-        class="dialog-close"
-        id="shiftSettingsClose"
-        type="button"
-        aria-label="关闭"
-        data-i18n-aria-label="common.close"
-      >
-        <span data-icon="close" aria-hidden="true"></span>
-      </button>
-      <div class="shift-settings-heading">
-        <p class="eyebrow" data-i18n="shiftSettings.library">班次库</p>
-        <h2 id="shiftSettingsTitle" data-i18n="shiftSettings.title">班次设置</h2>
+      <div class="shift-settings-topbar">
+        <div class="shift-settings-heading">
+          <p class="eyebrow" data-i18n="shiftSettings.library">班次库</p>
+          <h2 id="shiftSettingsTitle" data-i18n="shiftSettings.title">班次设置</h2>
+        </div>
+        <div class="shift-settings-actions">
+          <button
+            class="shift-timezone-button"
+            id="shiftTimezoneButton"
+            type="button"
+            aria-haspopup="dialog"
+          >
+            <span data-icon="globe" aria-hidden="true"></span>
+            <span class="shift-timezone-copy">
+              <strong id="shiftTimezoneZone">Asia/Shanghai</strong>
+              <small id="shiftTimezoneOffset">GMT+8</small>
+            </span>
+          </button>
+          <button
+            class="dialog-close"
+            id="shiftSettingsClose"
+            type="button"
+            aria-label="关闭"
+            data-i18n-aria-label="common.close"
+          >
+            <span data-icon="close" aria-hidden="true"></span>
+          </button>
+        </div>
       </div>
       <div class="shift-preset-list" id="shiftPresetList"></div>
       <button class="shift-preset-add" id="addShiftPreset" type="button">
@@ -750,6 +766,40 @@
           <span data-i18n="auth.resetPassword">重置密码</span>
         </button>
         <p class="form-status" id="adminPasswordStatus" aria-live="polite"></p>
+      </form>
+    </dialog>
+
+    <dialog class="auth-dialog timezone-dialog" id="timezoneDialog" aria-labelledby="timezoneTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button
+        class="dialog-close"
+        id="timezoneClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <div class="timezone-heading">
+        <p class="eyebrow" data-i18n="timezone.eyebrow">日历时区</p>
+        <h2 id="timezoneTitle" data-i18n="timezone.title">确认时区</h2>
+      </div>
+      <p class="timezone-intro" data-i18n="timezone.intro">
+        班次时间会按所选时区写入日历。设备检测结果已预选，通常直接确认即可。
+      </p>
+      <form class="auth-form timezone-form" id="timezoneForm">
+        <label>
+          <span data-i18n="timezone.label">时区</span>
+          <select id="timezoneSelect" name="timezone" required></select>
+        </label>
+        <div class="timezone-actions">
+          <button class="timezone-cancel" id="timezoneCancel" type="button" data-i18n="timezone.cancel">
+            取消
+          </button>
+          <button class="view-primary" id="timezoneConfirm" type="submit" data-i18n="timezone.confirm">
+            使用此时区
+          </button>
+        </div>
       </form>
     </dialog>
 

@@ -7,10 +7,16 @@ import {
   setLanguage,
   t
 } from "./i18n.js";
+import {
+  compactTimeZones,
+  DEFAULT_TIMEZONE,
+  detectTimeZone,
+  formatTimeZoneOffset,
+  normalizeTimeZone
+} from "./timezone.js";
 
 const STORAGE_KEY = "sloop.plan.v2";
 const SHIFT_PRESETS_STORAGE_KEY = "sloop.shift-presets.v1";
-const TIMEZONE = "Asia/Shanghai";
 const GUEST_EXPORT_MONTHS = 6;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
@@ -91,6 +97,7 @@ const ICON_PATHS = {
   arrowLeft: '<path d="m15 18-6-6 6-6"/>',
   arrowRight: '<path d="m9 18 6-6-6-6"/>',
   settings: '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h8"/><path d="M16 18h4"/><circle cx="14" cy="18" r="2"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
   languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>'
 };
 
@@ -177,6 +184,12 @@ const elements = {
   accountPanelName: document.querySelector("#accountPanelName"),
   accountPanelUsername: document.querySelector("#accountPanelUsername"),
   accountPanelRole: document.querySelector("#accountPanelRole"),
+  timezoneDialog: document.querySelector("#timezoneDialog"),
+  timezoneForm: document.querySelector("#timezoneForm"),
+  timezoneSelect: document.querySelector("#timezoneSelect"),
+  timezoneClose: document.querySelector("#timezoneClose"),
+  timezoneCancel: document.querySelector("#timezoneCancel"),
+  timezoneConfirm: document.querySelector("#timezoneConfirm"),
   profileForm: document.querySelector("#profileForm"),
   profileSubmit: document.querySelector("#profileSubmit"),
   profileStatus: document.querySelector("#profileStatus"),
@@ -194,6 +207,9 @@ const elements = {
   shiftSettingsDone: document.querySelector("#shiftSettingsDone"),
   shiftPresetList: document.querySelector("#shiftPresetList"),
   addShiftPreset: document.querySelector("#addShiftPreset"),
+  shiftTimezoneButton: document.querySelector("#shiftTimezoneButton"),
+  shiftTimezoneZone: document.querySelector("#shiftTimezoneZone"),
+  shiftTimezoneOffset: document.querySelector("#shiftTimezoneOffset"),
   toastRegion: document.querySelector("#toastRegion")
 };
 
@@ -216,6 +232,8 @@ let selectedMergedRequestId = 0;
 let adminUsers = [];
 let invites = [];
 let adminPasswordUser = null;
+let timezoneConfirmedForLink = false;
+let timezoneConfirmationResolver = null;
 
 function icon(name, size = 18) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] ?? ""}</svg>`;
@@ -359,6 +377,7 @@ function createDefaultState() {
   ];
   return {
     title: t("default.calendarTitle"),
+    timezone: DEFAULT_TIMEZONE,
     includeRest: false,
     durationMonths: DEFAULT_MEMBER_MONTHS,
     cycle,
@@ -431,6 +450,7 @@ function normalizeClientPlan(raw) {
 
   return {
     title: cleanText(raw.t ?? raw.title, 64) || t("default.calendarTitle"),
+    timezone: normalizeTimeZone(raw.z ?? raw.timezone, DEFAULT_TIMEZONE),
     includeRest: Boolean(raw.r ?? raw.includeRest),
     durationMonths: clampSubscriptionMonths(
       raw.d ?? raw.durationMonths,
@@ -445,7 +465,7 @@ function compactPlan() {
   return {
     v: 2,
     t: state.title,
-    z: TIMEZONE,
+    z: state.timezone,
     r: state.includeRest ? 1 : 0,
     d: clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS),
     i: getTodayIndex(),
@@ -527,7 +547,7 @@ function getTodayShift() {
 
 function todayParts() {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIMEZONE,
+    timeZone: state.timezone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
@@ -730,6 +750,20 @@ function renderShiftSettings() {
       `;
     })
     .join("");
+  syncShiftTimezoneButton();
+}
+
+function syncShiftTimezoneButton() {
+  const offset = formatTimeZoneOffset(state.timezone, getLocale());
+  elements.shiftTimezoneZone.textContent = state.timezone;
+  elements.shiftTimezoneOffset.textContent = offset;
+  elements.shiftTimezoneButton.setAttribute(
+    "aria-label",
+    t("shiftSettings.timezoneAria", {
+      zone: state.timezone,
+      offset
+    })
+  );
 }
 
 function openShiftSettings() {
@@ -1574,10 +1608,82 @@ function localizeBuiltInData() {
 
 async function toggleLanguage() {
   await setLanguage(getLanguage() === "zh-CN" ? "en" : "zh-CN");
+  timezoneConfirmedForLink = getLanguage() !== "en";
   localizeBuiltInData();
   refreshLocalizedUI();
   syncFieldValues();
   scheduleSave();
+}
+
+function timezoneOptionLabel(timeZone, detectedTimeZone, isDetected) {
+  const offset = formatTimeZoneOffset(timeZone, getLocale());
+  const label = offset ? `${timeZone} · ${offset}` : timeZone;
+  return isDetected ? `${t("timezone.detectedOption")} · ${label}` : label;
+}
+
+function populateTimezoneOptions(selectedTimeZone, detectedTimeZone) {
+  const zones = compactTimeZones([
+    selectedTimeZone,
+    detectedTimeZone,
+    DEFAULT_TIMEZONE
+  ]);
+  elements.timezoneSelect.innerHTML = zones
+    .map(
+      (timeZone) =>
+        `<option value="${escapeHTML(timeZone)}"${timeZone === selectedTimeZone ? " selected" : ""}>${escapeHTML(
+          timezoneOptionLabel(
+            timeZone,
+            detectedTimeZone,
+            timeZone === detectedTimeZone
+          )
+        )}</option>`
+    )
+    .join("");
+  elements.timezoneSelect.value = selectedTimeZone;
+}
+
+function openTimezoneDialog() {
+  const detectedTimeZone = detectTimeZone(state.timezone);
+  const selectedTimeZone =
+    state.timezone === DEFAULT_TIMEZONE && detectedTimeZone !== DEFAULT_TIMEZONE
+      ? detectedTimeZone
+      : state.timezone;
+  populateTimezoneOptions(selectedTimeZone, detectedTimeZone);
+  if (!elements.timezoneDialog.open) elements.timezoneDialog.showModal();
+}
+
+function settleTimezoneDialog(confirmed) {
+  const resolver = timezoneConfirmationResolver;
+  timezoneConfirmationResolver = null;
+  if (elements.timezoneDialog.open) elements.timezoneDialog.close();
+  resolver?.(confirmed);
+}
+
+function cancelTimezoneDialog() {
+  settleTimezoneDialog(false);
+}
+
+function confirmTimezoneSelection(event) {
+  event.preventDefault();
+  const timeZone = normalizeTimeZone(elements.timezoneSelect.value, state.timezone);
+  state.timezone = timeZone;
+  timezoneConfirmedForLink = true;
+  invalidateLinks();
+  renderPreview();
+  syncShiftTimezoneButton();
+  scheduleSave();
+  settleTimezoneDialog(true);
+}
+
+function ensureTimezoneForLink() {
+  if (getLanguage() !== "en" || timezoneConfirmedForLink) {
+    return Promise.resolve(true);
+  }
+  if (timezoneConfirmationResolver) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    timezoneConfirmationResolver = resolve;
+    openTimezoneDialog();
+  });
 }
 
 function applyUserUI() {
@@ -1862,9 +1968,10 @@ async function persistCalendar() {
   return currentLinks;
 }
 
-async function ensureLinks() {
+async function ensureLinks(confirmTimezone = true) {
   if (!updateValidation()) throw new Error(getValidationErrors()[0]);
   if (currentLinks) return currentLinks;
+  if (confirmTimezone && !(await ensureTimezoneForLink())) return null;
 
   if (currentUser) return persistCalendar();
 
@@ -1899,6 +2006,7 @@ async function copyText(value) {
 async function copySubscriptionLink() {
   try {
     const links = await ensureLinks();
+    if (!links) return;
     await copyText(links.ics);
     showToast(
       currentUser
@@ -1926,7 +2034,8 @@ async function downloadCalendar() {
       showToast(t("toast.guestExportReady", { months: plural("units.months", data.months) }));
       return;
     }
-    const links = await ensureLinks();
+    const links = await ensureLinks(false);
+    if (!links) return;
     window.location.href = links.download;
     showToast(t("toast.downloading"));
   } catch (error) {
@@ -1937,6 +2046,7 @@ async function downloadCalendar() {
 async function openCalendarApp() {
   try {
     const links = await ensureLinks();
+    if (!links) return;
     window.location.href = links.webcal;
   } catch (error) {
     showToast(errorMessage(error), "error");
@@ -2144,6 +2254,7 @@ function loadCalendarIntoBuilder(calendar) {
   state = normalizeClientPlan(calendar.plan);
   ensureCyclePresetAssignments();
   state.title = localizeBuiltInName(calendar.title);
+  timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
   currentLinks = buildLinks(calendar.subscriptionPath, coverageMonths());
@@ -2158,6 +2269,7 @@ function loadCalendarIntoBuilder(calendar) {
 
 function startNewCalendar() {
   state = createDefaultState();
+  timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = null;
   currentLinks = null;
@@ -2661,6 +2773,16 @@ function bindEvents() {
     else openAuthDialog("login");
   });
   elements.languageButton.addEventListener("click", toggleLanguage);
+  elements.timezoneForm.addEventListener("submit", confirmTimezoneSelection);
+  elements.timezoneClose.addEventListener("click", cancelTimezoneDialog);
+  elements.timezoneCancel.addEventListener("click", cancelTimezoneDialog);
+  elements.timezoneDialog.addEventListener("click", (event) => {
+    if (event.target === elements.timezoneDialog) cancelTimezoneDialog();
+  });
+  elements.timezoneDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    cancelTimezoneDialog();
+  });
   elements.authClose.addEventListener("click", closeAuthDialog);
   elements.authDialog.addEventListener("click", (event) => {
     if (event.target === elements.authDialog) closeAuthDialog();
@@ -2684,6 +2806,7 @@ function bindEvents() {
 
   elements.shiftSettingsClose.addEventListener("click", closeShiftSettings);
   elements.shiftSettingsDone.addEventListener("click", closeShiftSettings);
+  elements.shiftTimezoneButton.addEventListener("click", openTimezoneDialog);
   elements.shiftSettingsDialog.addEventListener("click", (event) => {
     if (event.target === elements.shiftSettingsDialog) closeShiftSettings();
   });
@@ -2789,6 +2912,7 @@ function bindEvents() {
 
 async function initialize() {
   hydrateStaticIcons();
+  timezoneConfirmedForLink = getLanguage() !== "en";
   shiftPresets = loadShiftPresets();
   state = loadStoredPlan() ?? createDefaultState();
   localizeBuiltInData();

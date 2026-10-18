@@ -48,6 +48,7 @@ Sloop 是一个轻量的轮转班表工具。你可以按顺序组合白班、�
 - 管理员可审批、拒绝、停用或恢复成员，调整角色，并管理邀请码。
 - 管理员可导出或导入应用数据备份（不含临时游客订阅）；导入会整体覆盖现有数据并撤销全部登录会话。
 - 页面支持简体中文和英文，会记住上次选择，并随浏览器语言自动初始化。
+- 英文界面在首次创建订阅链接前会确认设备时区；默认仍为中国时区，可从常用时区短列表调整。
 
 ### 快速开始
 
@@ -63,7 +64,7 @@ pnpm exec wrangler d1 migrations apply sloop-db --local
 pnpm dev
 ```
 
-打开 `http://localhost:8787`。第一次注册的账号会成为本地管理员。
+打开 `http://localhost:2167`。第一次注册的账号会成为本地管理员。
 
 `pnpm dev` 会先通过 esbuild 将前端入口和 i18next 资源打包到 `public/app.bundle.js`，运行时不依赖 CDN。生成文件已被 Git 忽略。
 
@@ -87,7 +88,9 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 
 ### Docker 自托管
 
-Docker 镜像使用 Wrangler 本地运行时启动完整 Worker，并把 D1 数据保存到 `/data`。容器启动时会自动应用数据库迁移。CI 构建 `linux/amd64` 和 `linux/arm64` 镜像，并发布到 GHCR；发布到 Docker Hub 需要配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` Secrets。
+Docker 镜像使用 Wrangler 本地运行时启动完整 Worker，并把 D1 数据保存到 `/data`。容器启动时会自动应用数据库迁移。CI 构建 `linux/amd64` 和 `linux/arm64` 镜像，并发布到 GHCR 和 Docker Hub；Docker Hub 发布需要配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` Secrets。
+
+下面的 Compose 配置默认使用可公开拉取的 Docker Hub 镜像。如需改用 GHCR，可以通过 `SLOOP_IMAGE` 切换，但必须先将 GitHub Container Registry 中的 `sloop` 包设为 Public；私有包需要登录后才能拉取。
 
 创建 `.env`：
 
@@ -101,9 +104,9 @@ LINK_SIGNING_SECRET=replace-with-a-long-random-secret
 services:
   sloop:
     container_name: sloop
-    image: ghcr.io/xigemax/sloop:latest
+    image: "${SLOOP_IMAGE:-docker.io/xigemax/sloop:latest}"
     ports:
-      - "8787:8787"
+      - "2167:2167"
     volumes:
       - sloop-data:/data
       - /etc/localtime:/etc/localtime:ro
@@ -112,6 +115,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       APP_ENV: production
+      DEFAULT_TIMEZONE: Asia/Shanghai
       LINK_SIGNING_SECRET: "${LINK_SIGNING_SECRET}"
 
 volumes:
@@ -124,7 +128,19 @@ volumes:
 docker compose up -d
 ```
 
-随后访问 `http://localhost:8787`。`sloop-data` 卷保存数据库状态，请把它纳入常规备份。若未传 `LINK_SIGNING_SECRET`，容器会生成一次性临时密钥，重启后已有成员订阅链接会失效。
+随后访问 `http://localhost:2167`。`sloop-data` 卷保存数据库状态，请把它纳入常规备份。若未传 `LINK_SIGNING_SECRET`，容器会生成一次性临时密钥，重启后已有成员订阅链接会失效。
+
+如果 GHCR 包仍为 Private，请使用至少有 `read:packages` 权限的 GitHub Token 登录，再通过环境变量切换到 GHCR：
+
+```bash
+export SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
+export GHCR_TOKEN=replace-with-a-github-token
+echo "$GHCR_TOKEN" | docker login ghcr.io -u GITHUB_USERNAME --password-stdin
+docker compose pull
+docker compose up -d
+```
+
+若拉取阶段出现 `unauthorized` 或 `denied`，通常表示镜像未公开或尚未登录对应 Registry；此时应用容器还没有启动，应先解决镜像访问权限。
 
 也可以直接从源码构建：
 
@@ -132,7 +148,7 @@ docker compose up -d
 docker build -t sloop .
 docker run -d \
   --name sloop \
-  -p 8787:8787 \
+  -p 2167:2167 \
   -v sloop-data:/data \
   -e LINK_SIGNING_SECRET="replace-with-a-long-random-secret" \
   --restart unless-stopped \
@@ -186,7 +202,7 @@ docker run -d \
 
 ### ICS 行为
 
-- 班次时间按 `Asia/Shanghai` 换算成 UTC 日历事件。
+- 班次时间按周期保存的时区换算成 UTC 日历事件；未选择时默认使用 `Asia/Shanghai`。
 - 结束时间早于或等于开始时间时，结束日期按次日计算；休息班次仍按全天处理。
 - 休息日默认不生成事件。开启“休息日写入日历”后，会生成 `TRANSP:TRANSPARENT` 的透明事件；夜班后的休息会从下班时刻起持续 24 小时。
 - 日历响应包含 1 小时刷新提示，实际刷新频率由日历客户端决定。
@@ -276,6 +292,7 @@ Sloop is a lightweight rotating-shift calendar builder. Arrange day, night, rest
 - Administrators can approve, reject, disable, or restore members, change roles, and manage invite codes.
 - Administrators can export or import application data backups, excluding temporary guest subscriptions; importing replaces current data and revokes every session.
 - The interface supports Simplified Chinese and English, remembers the selected language, and initializes from the browser locale.
+- The English interface confirms the device time zone before the first subscription link is created. China time remains the default, with a short list of common time zones available.
 
 ### Quick start
 
@@ -291,7 +308,7 @@ pnpm exec wrangler d1 migrations apply sloop-db --local
 pnpm dev
 ```
 
-Open `http://localhost:8787`. The first registered account becomes the local administrator.
+Open `http://localhost:2167`. The first registered account becomes the local administrator.
 
 `pnpm dev` first bundles the frontend entry point and i18next resources into `public/app.bundle.js` with esbuild. The application does not load runtime dependencies from a CDN, and the generated bundle is ignored by Git.
 
@@ -315,7 +332,9 @@ The health endpoint is `GET /api/health`; it checks both the D1 connection and w
 
 ### Docker self-hosting
 
-The Docker image runs the complete Worker on Wrangler's local runtime and stores D1 data in `/data`. Database migrations are applied automatically on startup. CI builds `linux/amd64` and `linux/arm64` images and publishes them to GHCR; Docker Hub publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets.
+The Docker image runs the complete Worker on Wrangler's local runtime and stores D1 data in `/data`. Database migrations are applied automatically on startup. CI builds `linux/amd64` and `linux/arm64` images and publishes them to both GHCR and Docker Hub; Docker Hub publishing requires the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets.
+
+The Compose configuration below uses the publicly pullable Docker Hub image by default. To use GHCR instead, set `SLOOP_IMAGE`, but first make the `sloop` package in GitHub Container Registry public. A private package requires registry login before it can be pulled.
 
 Create `.env`:
 
@@ -329,9 +348,9 @@ Create `compose.yaml`:
 services:
   sloop:
     container_name: sloop
-    image: ghcr.io/xigemax/sloop:latest
+    image: "${SLOOP_IMAGE:-docker.io/xigemax/sloop:latest}"
     ports:
-      - "8787:8787"
+      - "2167:2167"
     volumes:
       - sloop-data:/data
       - /etc/localtime:/etc/localtime:ro
@@ -340,6 +359,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       APP_ENV: production
+      DEFAULT_TIMEZONE: Asia/Shanghai
       LINK_SIGNING_SECRET: "${LINK_SIGNING_SECRET}"
 
 volumes:
@@ -352,7 +372,19 @@ Start the service:
 docker compose up -d
 ```
 
-Then open `http://localhost:8787`. The `sloop-data` volume stores database state and should be included in regular backups. If `LINK_SIGNING_SECRET` is omitted, the container generates an ephemeral secret, so existing member subscription links break after a restart.
+Then open `http://localhost:2167`. The `sloop-data` volume stores database state and should be included in regular backups. If `LINK_SIGNING_SECRET` is omitted, the container generates an ephemeral secret, so existing member subscription links break after a restart.
+
+If the GHCR package is still private, log in with a GitHub token that has at least the `read:packages` scope, then switch to GHCR through the environment variable:
+
+```bash
+export SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
+export GHCR_TOKEN=replace-with-a-github-token
+echo "$GHCR_TOKEN" | docker login ghcr.io -u GITHUB_USERNAME --password-stdin
+docker compose pull
+docker compose up -d
+```
+
+An `unauthorized` or `denied` error during the pull phase usually means the image is private or the registry login is missing. The application container has not started yet in that case, so resolve image access first.
 
 You can also build directly from source:
 
@@ -360,7 +392,7 @@ You can also build directly from source:
 docker build -t sloop .
 docker run -d \
   --name sloop \
-  -p 8787:8787 \
+  -p 2167:2167 \
   -v sloop-data:/data \
   -e LINK_SIGNING_SECRET="replace-with-a-long-random-secret" \
   --restart unless-stopped \
@@ -414,7 +446,7 @@ If an administrator forgets their password, recover it through the deployment's 
 
 ### ICS behavior
 
-- Shift times in `Asia/Shanghai` are converted to UTC calendar events.
+- Shift times are converted to UTC using the time zone saved with the cycle, defaulting to `Asia/Shanghai`.
 - If an end time is earlier than or equal to its start time, the event ends the next day; rest shifts remain all-day entries.
 - Rest days are omitted by default. When "include rest days" is enabled, Sloop emits `TRANSP:TRANSPARENT` events; rest after an overnight shift lasts 24 hours from the shift end.
 - Calendar responses request a one-hour refresh interval. Actual refresh behavior depends on the calendar client.

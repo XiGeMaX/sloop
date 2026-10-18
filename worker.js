@@ -1,4 +1,5 @@
-const DEFAULT_TIMEZONE = "Asia/Shanghai";
+import { DEFAULT_TIMEZONE, normalizeTimeZone } from "./public/timezone.js";
+
 const MAX_CYCLE_DAYS = 35;
 const MAX_GUEST_MONTHS = 3;
 const MAX_GUEST_EXPORT_MONTHS = 6;
@@ -161,7 +162,7 @@ function normalizePlan(raw) {
   });
 
   const todayIndex = Number(raw.i ?? raw.todayIndex ?? 0);
-  const timezone = cleanText(raw.z ?? raw.timezone, 64) || DEFAULT_TIMEZONE;
+  const timezone = normalizeTimeZone(cleanText(raw.z ?? raw.timezone, 64));
   const durationValue = Number(raw.d ?? raw.durationMonths ?? DEFAULT_MEMBER_MONTHS);
   const durationMonths = Number.isFinite(durationValue)
     ? Math.max(1, Math.min(MAX_MEMBER_MONTHS, Math.round(durationValue)))

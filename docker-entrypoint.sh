@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-PORT="${PORT:-8787}"
+PORT="${PORT:-2167}"
 APP_ENV="${APP_ENV:-production}"
 DEFAULT_TIMEZONE="${DEFAULT_TIMEZONE:-Asia/Shanghai}"
 

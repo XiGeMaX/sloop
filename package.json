@@ -6,7 +6,7 @@
   "scripts": {
     "build": "esbuild public/app.js --bundle --format=esm --outfile=public/app.bundle.js",
     "predev": "pnpm build",
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 2167",
     "predeploy": "pnpm build",
     "deploy": "wrangler deploy",
     "admin:reset": "node scripts/reset-admin-password.mjs",
