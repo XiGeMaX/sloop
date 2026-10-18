@@ -297,10 +297,16 @@
             <p class="eyebrow" data-i18n="saved.eyebrow">已保存周期</p>
             <h1 id="calendarsTitle" data-i18n="saved.title">我的周期</h1>
           </div>
-          <button class="view-primary" id="newCalendarButton" type="button">
-            <span data-icon="plus" aria-hidden="true"></span>
-            <span data-i18n="saved.new">新建周期</span>
-          </button>
+          <div class="view-heading-actions">
+            <button class="view-secondary" id="importCycleButton" type="button">
+              <span data-icon="upload" aria-hidden="true"></span>
+              <span data-i18n="saved.import">导入分享</span>
+            </button>
+            <button class="view-primary" id="newCalendarButton" type="button">
+              <span data-icon="plus" aria-hidden="true"></span>
+              <span data-i18n="saved.new">新建周期</span>
+            </button>
+          </div>
         </header>
         <section
           class="merged-subscription"
@@ -720,6 +726,93 @@
       </form>
 
       <p class="auth-status" id="authStatus" aria-live="polite"></p>
+    </dialog>
+
+    <dialog class="share-dialog" id="cycleShareDialog" aria-labelledby="cycleShareTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button
+        class="dialog-close"
+        id="cycleShareClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <p class="eyebrow" data-i18n="saved.shareEyebrow">分享周期</p>
+      <h2 id="cycleShareTitle" data-i18n="saved.shareTitle">分享周期</h2>
+      <p class="share-intro" id="cycleShareDescription"></p>
+      <label class="share-field">
+        <span data-i18n="saved.shareLink">分享链接</span>
+        <textarea id="cycleShareLink" rows="4" readonly spellcheck="false"></textarea>
+      </label>
+      <div class="share-dialog-actions">
+        <button class="view-secondary" id="systemShareCycle" type="button">
+          <span data-icon="share" aria-hidden="true"></span>
+          <span data-i18n="saved.systemShare">系统分享</span>
+        </button>
+        <button class="view-primary" id="copyCycleShare" type="button">
+          <span data-icon="copy" aria-hidden="true"></span>
+          <span data-i18n="saved.copyShare">复制链接</span>
+        </button>
+      </div>
+    </dialog>
+
+    <dialog class="share-dialog" id="cycleImportDialog" aria-labelledby="cycleImportTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <button
+        class="dialog-close"
+        id="cycleImportClose"
+        type="button"
+        aria-label="关闭"
+        data-i18n-aria-label="common.close"
+      >
+        <span data-icon="close" aria-hidden="true"></span>
+      </button>
+      <p class="eyebrow" data-i18n="saved.importEyebrow">导入周期</p>
+      <h2 id="cycleImportTitle" data-i18n="saved.importTitle">导入分享</h2>
+      <p class="share-intro" data-i18n="saved.importDescription">
+        粘贴分享链接，导入后会作为新周期保存。
+      </p>
+      <form class="share-import-form" id="cycleImportForm">
+        <label class="share-field">
+          <span data-i18n="saved.shareLink">分享链接</span>
+          <textarea
+            id="cycleImportInput"
+            rows="5"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="粘贴分享链接或分享代码"
+            data-i18n-placeholder="saved.importPlaceholder"
+          ></textarea>
+        </label>
+        <p class="form-status" id="cycleImportStatus" aria-live="polite"></p>
+        <button class="view-primary share-import-submit" id="cycleImportSubmit" type="submit">
+          <span data-icon="upload" aria-hidden="true"></span>
+          <span data-i18n="saved.importAction">导入到我的周期</span>
+        </button>
+      </form>
+    </dialog>
+
+    <dialog
+      class="confirm-dialog"
+      id="confirmDialog"
+      role="alertdialog"
+      aria-labelledby="confirmTitle"
+      aria-describedby="confirmMessage"
+    >
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <p class="eyebrow" data-i18n="confirm.eyebrow">请确认</p>
+      <h2 id="confirmTitle" data-i18n="confirm.title">需要确认</h2>
+      <p class="confirm-message" id="confirmMessage"></p>
+      <div class="confirm-dialog-actions">
+        <button class="view-secondary" id="confirmCancel" type="button">
+          <span id="confirmCancelLabel" data-i18n="common.cancel">取消</span>
+        </button>
+        <button class="view-primary" id="confirmAccept" type="button">
+          <span id="confirmAcceptLabel" data-i18n="confirm.continue">继续</span>
+        </button>
+      </div>
     </dialog>
 
     <dialog class="auth-dialog admin-password-dialog" id="adminPasswordDialog" aria-labelledby="adminPasswordTitle">

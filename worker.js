@@ -237,7 +237,8 @@ function normalizeShiftLibrary(raw) {
       end,
       endDayOffset,
       tone: Object.hasOwn(TONES, toneValue) ? toneValue : "sky",
-      removable: !["day", "night", "off"].includes(id)
+      visibleOnHome: item.visibleOnHome !== false,
+      removable: true
     };
   });
 }

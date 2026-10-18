@@ -775,6 +775,7 @@ h2 {
 .cycle-list {
   display: grid;
   gap: 7px;
+  container-type: inline-size;
 }
 
 .cycle-item {
@@ -1434,6 +1435,12 @@ h2 {
   font-size: 2rem;
 }
 
+.view-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .view-primary {
   display: inline-flex;
   align-items: center;
@@ -1448,6 +1455,28 @@ h2 {
   font-size: 0.76rem;
   font-weight: 710;
   cursor: pointer;
+}
+
+.view-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 680;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-secondary svg {
+  width: 16px;
+  height: 16px;
 }
 
 .view-primary svg {
@@ -2110,7 +2139,9 @@ h2 {
 }
 
 .auth-dialog,
-.shift-settings-dialog {
+.shift-settings-dialog,
+.share-dialog,
+.confirm-dialog {
   width: min(440px, calc(100% - 24px));
   max-height: min(760px, calc(100dvh - 24px));
   padding: 31px;
@@ -2126,8 +2157,18 @@ h2 {
   width: min(560px, calc(100% - 24px));
 }
 
+.share-dialog {
+  width: min(500px, calc(100% - 24px));
+}
+
+.confirm-dialog {
+  width: min(430px, calc(100% - 24px));
+}
+
 .auth-dialog::backdrop,
-.shift-settings-dialog::backdrop {
+.shift-settings-dialog::backdrop,
+.share-dialog::backdrop,
+.confirm-dialog::backdrop {
   background: rgba(18, 21, 17, 0.44);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
@@ -2232,9 +2273,105 @@ h2 {
   flex: 0 0 auto;
 }
 
-.auth-dialog > h2 {
+.auth-dialog > h2,
+.share-dialog > h2 {
   margin-bottom: 20px;
   font-size: 1.45rem;
+}
+
+.share-dialog > .eyebrow {
+  margin-bottom: 5px;
+}
+
+.share-dialog > h2 {
+  margin: 0 0 9px;
+  padding-right: 38px;
+}
+
+.share-intro {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.share-field {
+  display: grid;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 0.69rem;
+  font-weight: 650;
+}
+
+.share-field textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 11px;
+  resize: vertical;
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--ink);
+  background: var(--surface-quiet);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.67rem;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.share-field textarea:focus {
+  border-color: var(--hairline-strong);
+  background: var(--surface-solid);
+}
+
+.share-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.share-dialog-actions > [hidden] {
+  display: none;
+}
+
+.share-import-form {
+  display: grid;
+  gap: 10px;
+}
+
+.share-import-submit {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.confirm-dialog > .eyebrow {
+  margin-bottom: 5px;
+}
+
+.confirm-dialog > h2 {
+  margin: 0 0 10px;
+  font-size: 1.45rem;
+}
+
+.confirm-message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+.confirm-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 22px;
+}
+
+#confirmAccept.is-danger {
+  color: #fff;
+  background: var(--danger);
 }
 
 .shift-settings-heading {
@@ -2302,7 +2439,7 @@ h2 {
 }
 
 .shift-preset-card-heading:has(.shift-preset-remove) .shift-preset-name {
-  padding-right: 42px;
+  padding-right: 76px;
 }
 
 .shift-preset-name:focus {
@@ -2324,6 +2461,32 @@ h2 {
   background: transparent;
   cursor: pointer;
   place-items: center;
+}
+
+.shift-preset-visibility {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 34px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.shift-preset-visibility[aria-pressed="false"] {
+  color: color-mix(in srgb, var(--danger) 64%, var(--muted));
+}
+
+.shift-preset-visibility svg {
+  width: 15px;
+  height: 15px;
 }
 
 .shift-preset-remove svg {
@@ -3433,6 +3596,7 @@ h2 {
 
   .view-heading {
     align-items: center;
+    flex-wrap: wrap;
     gap: 14px;
     padding-bottom: 22px;
   }
@@ -3443,6 +3607,16 @@ h2 {
 
   .view-primary {
     min-height: 40px;
+  }
+
+  .view-heading-actions {
+    width: 100%;
+  }
+
+  .view-heading-actions > button {
+    min-width: 0;
+    flex: 1 1 0;
+    padding-inline: 10px;
   }
 
   .merged-subscription {
@@ -3504,7 +3678,9 @@ h2 {
   }
 
   .auth-dialog,
-  .shift-settings-dialog {
+  .shift-settings-dialog,
+  .share-dialog,
+  .confirm-dialog {
     width: 100%;
     max-width: none;
     max-height: calc(100dvh - 12px);
@@ -3528,7 +3704,8 @@ h2 {
   .account-form input,
   .shift-preset-name,
   .shift-preset-time input,
-  .end-day-select {
+  .end-day-select,
+  .share-field textarea {
     font-size: 16px;
   }
 
@@ -3634,7 +3811,9 @@ h2 {
 @media (prefers-reduced-transparency: reduce) {
   .page-view,
   .auth-dialog,
-  .shift-settings-dialog {
+  .shift-settings-dialog,
+  .share-dialog,
+  .confirm-dialog {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -3994,6 +4173,48 @@ h2 {
   .mobile-editor-actions button:hover:not(:disabled) {
     border-color: var(--hairline-strong);
     background-color: color-mix(in srgb, var(--ink) 5%, transparent);
+  }
+}
+
+@container (max-width: 720px) {
+  .time-fields {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    padding-left: 0;
+  }
+
+  .time-input {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .time-input-end {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+  }
+
+  .time-input span {
+    display: none;
+  }
+
+  .time-input input {
+    min-width: 4.6rem;
+  }
+}
+
+@container (max-width: 420px) {
+  .time-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .time-arrow {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .share-dialog-actions,
+  .confirm-dialog-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

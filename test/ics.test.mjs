@@ -573,7 +573,8 @@ test("stores each user's shift library and restores it on the next request", asy
       start: "09:00",
       end: "09:00",
       endDayOffset: 1,
-      tone: "coral"
+      tone: "coral",
+      visibleOnHome: false
     }
   ];
   const saved = await worker.fetch(
@@ -581,7 +582,10 @@ test("stores each user's shift library and restores it on the next request", asy
     { DB: db }
   );
   assert.equal(saved.status, 200);
-  assert.equal((await saved.json()).presets[1].endDayOffset, 1);
+  const savedData = await saved.json();
+  assert.equal(savedData.presets[0].removable, true);
+  assert.equal(savedData.presets[1].endDayOffset, 1);
+  assert.equal(savedData.presets[1].visibleOnHome, false);
   assert.equal(shiftLibraries.has("member-1"), true);
 
   const restored = await worker.fetch(
@@ -981,8 +985,10 @@ test("rejects equal start and end times", async () => {
 
 test("rejects an invalid guest token", async () => {
   const { path, db } = await createTestGuestPath();
+  const invalidUrl = new URL(path, "https://example.com");
+  invalidUrl.searchParams.set("token", "x");
   const response = await worker.fetch(
-    new Request(`https://example.com${path.replace(/token=./, "token=x")}`),
+    new Request(invalidUrl),
     { DB: db }
   );
   assert.equal(response.status, 403);

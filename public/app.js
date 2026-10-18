@@ -16,6 +16,12 @@ import {
 } from "./timezone.js";
 import { minutesRemainingInDay } from "./rest-duration.js";
 import {
+  buildCycleSharePackage,
+  decodeCycleShareInput,
+  encodeCycleSharePackage,
+  matchSharedPresets
+} from "./cycle-share.js";
+import {
   MAX_END_DAY_OFFSET,
   inferEndDayOffset,
   normalizeEndDayOffset,
@@ -29,6 +35,7 @@ const USER_SHIFT_PRESETS_STORAGE_KEY_PREFIX = "sloop.shift-presets.user.";
 const GUEST_EXPORT_MONTHS = 6;
 const DEFAULT_MEMBER_MONTHS = 12;
 const MAX_MEMBER_MONTHS = 24;
+const MAX_SHIFT_PRESETS = 12;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const TONE_ORDER = [
   "sky",
@@ -61,7 +68,8 @@ function getDefaultShiftPresets() {
       start: "08:00",
       end: "20:00",
       endDayOffset: 0,
-      tone: "sky"
+      tone: "sky",
+      visibleOnHome: true
     },
     {
       id: "night",
@@ -70,7 +78,8 @@ function getDefaultShiftPresets() {
       start: "20:00",
       end: "08:00",
       endDayOffset: 1,
-      tone: "indigo"
+      tone: "indigo",
+      visibleOnHome: true
     },
     {
       id: "off",
@@ -79,7 +88,8 @@ function getDefaultShiftPresets() {
       start: "00:00",
       end: "00:00",
       endDayOffset: 0,
-      tone: "sage"
+      tone: "sage",
+      visibleOnHome: true
     }
   ];
 }
@@ -115,6 +125,10 @@ const ICON_PATHS = {
   arrowLeft: '<path d="m15 18-6-6 6-6"/>',
   arrowRight: '<path d="m9 18 6-6-6-6"/>',
   settings: '<path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h2"/><path d="M10 12h10"/><circle cx="8" cy="12" r="2"/><path d="M4 18h8"/><path d="M16 18h4"/><circle cx="14" cy="18" r="2"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.7 6.8-4.2"/><path d="m8.6 13.3 6.8 4.2"/>',
+  eye: '<path d="M2.1 12a10 10 0 0 1 19.8 0 10 10 0 0 1-19.8 0Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="m3 3 18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 8 9 8a17 17 0 0 1-2.1 3.2"/><path d="M6.1 6.1C3.5 7.8 2.1 12 2.1 12s3.5 8 9.9 8a10 10 0 0 0 4.4-1"/>',
+  upload: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
   languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>'
 };
@@ -163,6 +177,7 @@ const elements = {
   languageLabel: document.querySelector("#languageLabel"),
   calendarList: document.querySelector("#calendarList"),
   newCalendarButton: document.querySelector("#newCalendarButton"),
+  importCycleButton: document.querySelector("#importCycleButton"),
   mergedSubscription: document.querySelector("#mergedSubscription"),
   mergedCalendarCount: document.querySelector("#mergedCalendarCount"),
   mergedSubscriptionDescription: document.querySelector("#mergedSubscriptionDescription"),
@@ -170,6 +185,24 @@ const elements = {
   mergedSubscriptionActionLabel: document.querySelector("#mergedSubscriptionActionLabel"),
   copyMergedSubscription: document.querySelector("#copyMergedSubscription"),
   clearMergedSelection: document.querySelector("#clearMergedSelection"),
+  cycleShareDialog: document.querySelector("#cycleShareDialog"),
+  cycleShareClose: document.querySelector("#cycleShareClose"),
+  cycleShareDescription: document.querySelector("#cycleShareDescription"),
+  cycleShareLink: document.querySelector("#cycleShareLink"),
+  copyCycleShare: document.querySelector("#copyCycleShare"),
+  systemShareCycle: document.querySelector("#systemShareCycle"),
+  cycleImportDialog: document.querySelector("#cycleImportDialog"),
+  cycleImportClose: document.querySelector("#cycleImportClose"),
+  cycleImportForm: document.querySelector("#cycleImportForm"),
+  cycleImportInput: document.querySelector("#cycleImportInput"),
+  cycleImportStatus: document.querySelector("#cycleImportStatus"),
+  cycleImportSubmit: document.querySelector("#cycleImportSubmit"),
+  confirmDialog: document.querySelector("#confirmDialog"),
+  confirmMessage: document.querySelector("#confirmMessage"),
+  confirmCancel: document.querySelector("#confirmCancel"),
+  confirmCancelLabel: document.querySelector("#confirmCancelLabel"),
+  confirmAccept: document.querySelector("#confirmAccept"),
+  confirmAcceptLabel: document.querySelector("#confirmAcceptLabel"),
   adminCount: document.querySelector("#adminCount"),
   pendingCount: document.querySelector("#pendingCount"),
   peopleList: document.querySelector("#peopleList"),
@@ -248,6 +281,9 @@ let selectedShiftId = null;
 let pendingTonePaletteScroll = null;
 let pendingTonePaletteScrollAt = 0;
 let calendars = [];
+let activeShareCalendar = null;
+let pendingSharedCycleInput = null;
+let confirmationResolver = null;
 let mergedSubscription = null;
 let selectedMergedSubscription = null;
 let selectedCalendarIds = new Set();
@@ -273,14 +309,13 @@ function makeId() {
 }
 
 function cloneDefaultPresets() {
-  return getDefaultShiftPresets().map((preset) => ({ ...preset, removable: false }));
+  return getDefaultShiftPresets().map((preset) => ({ ...preset, removable: true }));
 }
 
 function normalizeShiftPreset(raw, index = 0) {
   if (!raw || typeof raw !== "object") return null;
   const storedId = cleanText(raw.id, 80);
   const id = /^[a-zA-Z0-9_-]+$/.test(storedId) ? storedId : `preset-${index + 1}`;
-  const fixed = getDefaultShiftPresets().some((preset) => preset.id === id);
   const kind = raw.kind === "off" ? "off" : "work";
   const name =
     cleanText(raw.name, 28) ||
@@ -295,7 +330,8 @@ function normalizeShiftPreset(raw, index = 0) {
     end,
     endDayOffset: normalizeEndDayOffset(raw.endDayOffset, start, end, kind),
     tone: TONE_ORDER.includes(raw.tone) ? raw.tone : kind === "off" ? "sage" : "sky",
-    removable: fixed ? false : Boolean(raw.removable)
+    visibleOnHome: raw.visibleOnHome !== false,
+    removable: true
   };
 }
 
@@ -309,7 +345,10 @@ function normalizeShiftPresetList(stored) {
       seen.add(preset.id);
       return true;
     })
-    .slice(0, 12);
+    .slice(0, MAX_SHIFT_PRESETS);
+  if (presets.length && !presets.some((preset) => preset.visibleOnHome)) {
+    presets[0].visibleOnHome = true;
+  }
   return presets.length ? presets : null;
 }
 
@@ -467,10 +506,14 @@ function makeShift(preset = shiftPresets[0] ?? getDefaultShiftPresets()[0]) {
 }
 
 function createDefaultState() {
-  const defaults = getDefaultShiftPresets();
-  const day = getShiftPreset("day") ?? defaults[0];
-  const night = getShiftPreset("night") ?? defaults[1];
-  const off = getShiftPreset("off") ?? defaults[2];
+  const availableVisible = shiftPresets.filter((preset) => preset.visibleOnHome !== false);
+  const available = availableVisible.length ? availableVisible : shiftPresets;
+  const day = getShiftPreset("day") ?? available.find((preset) => preset.kind === "work") ?? available[0];
+  const night =
+    getShiftPreset("night") ??
+    available.find((preset) => preset.kind === "work" && preset.id !== day.id) ??
+    day;
+  const off = getShiftPreset("off") ?? available.find((preset) => preset.kind === "off") ?? available[0];
   const cycle = [
     makeShift(day),
     makeShift(day),
@@ -574,15 +617,19 @@ function normalizeClientPlan(raw) {
   };
 }
 
-function compactPlan() {
+function compactPlan(source = state) {
+  const todayIndex = Math.max(
+    0,
+    source.cycle.findIndex((item) => item.id === source.todayId)
+  );
   return {
     v: 2,
-    t: state.title,
-    z: state.timezone,
-    r: state.includeRest ? 1 : 0,
-    d: clampSubscriptionMonths(state.durationMonths, DEFAULT_MEMBER_MONTHS),
-    i: getTodayIndex(),
-    c: state.cycle.map((item) => [
+    t: source.title,
+    z: source.timezone,
+    r: source.includeRest ? 1 : 0,
+    d: clampSubscriptionMonths(source.durationMonths, DEFAULT_MEMBER_MONTHS),
+    i: todayIndex,
+    c: source.cycle.map((item) => [
       item.kind === "off" ? "o" : "w",
       item.name,
       item.start,
@@ -805,8 +852,6 @@ function shiftIcon(shift) {
 }
 
 function renderPresets() {
-  const fixed = shiftPresets.filter((preset) => !preset.removable);
-  const custom = shiftPresets.filter((preset) => preset.removable);
   const presetButton = (preset) => `
         <button class="preset-button tone-${preset.tone}" type="button" data-preset="${preset.id}">
           <span class="preset-glyph">${icon(shiftIcon(preset), 16)}</span>
@@ -819,7 +864,10 @@ function renderPresets() {
         </button>
       `;
 
-  elements.presetRow.innerHTML = [...fixed, ...custom].map(presetButton).join("");
+  elements.presetRow.innerHTML = shiftPresets
+    .filter((preset) => preset.visibleOnHome !== false)
+    .map(presetButton)
+    .join("");
 }
 
 function renderShiftSettings() {
@@ -854,11 +902,26 @@ function renderShiftSettings() {
               aria-label="${escapeHTML(t("shiftSettings.nameAria", { index: index + 1 }))}"
               autocomplete="off"
             />
-            ${
-              preset.removable
-                ? `<button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.remove", { name: displayPresetName(preset) }))}">${icon("trash", 15)}</button>`
-                : ""
-            }
+            <button
+              class="shift-preset-visibility"
+              type="button"
+              data-preset-action="visibility"
+              data-id="${preset.id}"
+              aria-label="${escapeHTML(t(
+                preset.visibleOnHome !== false
+                  ? "shiftSettings.hideFromHome"
+                  : "shiftSettings.showOnHome",
+                { name: displayPresetName(preset) }
+              ))}"
+              aria-pressed="${preset.visibleOnHome !== false}"
+              title="${escapeHTML(t(
+                preset.visibleOnHome !== false
+                  ? "shiftSettings.hideFromHome"
+                  : "shiftSettings.showOnHome",
+                { name: displayPresetName(preset) }
+              ))}"
+            >${icon(preset.visibleOnHome !== false ? "eye" : "eyeOff", 15)}</button>
+            <button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.remove", { name: displayPresetName(preset) }))}">${icon("trash", 15)}</button>
           </div>
           <div class="shift-preset-time">
             ${
@@ -928,7 +991,7 @@ function updateShiftPreset(id, patch) {
 }
 
 function addCustomShiftPreset() {
-  if (shiftPresets.length >= 12) {
+  if (shiftPresets.length >= MAX_SHIFT_PRESETS) {
     showToast(t("shiftSettings.tooMany"), "error");
     return;
   }
@@ -940,6 +1003,7 @@ function addCustomShiftPreset() {
     end: "18:00",
     endDayOffset: 0,
     tone: "coral",
+    visibleOnHome: true,
     removable: true
   };
   shiftPresets.push(preset);
@@ -956,18 +1020,57 @@ function addCustomShiftPreset() {
   });
 }
 
-function removeShiftPreset(id) {
+async function removeShiftPreset(id) {
   const preset = getShiftPreset(id);
-  if (!preset?.removable) return;
-  if (state.cycle.some((shift) => shift.presetId === id)) {
-    showToast(t("shiftSettings.inUse"), "error");
+  if (!preset) return;
+  if (shiftPresets.length <= 1) {
+    showToast(t("shiftSettings.keepOne"), "error");
     return;
+  }
+  if (state.cycle.some((shift) => shift.presetId === id)) {
+    const confirmed = await requestConfirmation({
+      message: t("confirm.removePresetInUse", { name: displayPresetName(preset) }),
+      confirmLabel: t("confirm.deleteAction"),
+      danger: true
+    });
+    if (!confirmed) return;
+    for (const shift of state.cycle) {
+      if (shift.presetId === id) detachShiftFromPreset(shift);
+    }
   }
   shiftPresets = shiftPresets.filter((item) => item.id !== id);
   saveShiftPresets();
   renderPresets();
   renderShiftSettings();
+  renderCycle();
+  updateAllPreview();
   showToast(t("shiftSettings.removed"));
+}
+
+function toggleShiftPresetVisibility(id) {
+  const preset = getShiftPreset(id);
+  if (!preset) return;
+  const isVisible = preset.visibleOnHome !== false;
+  if (isVisible && shiftPresets.filter((item) => item.visibleOnHome !== false).length <= 1) {
+    showToast(t("shiftSettings.keepOneVisible"), "error");
+    return;
+  }
+  preset.visibleOnHome = !isVisible;
+  saveShiftPresets();
+  renderPresets();
+  const button = elements.shiftPresetList.querySelector(
+    `[data-preset-action="visibility"][data-id="${id}"]`
+  );
+  if (button) {
+    const label = t(
+      preset.visibleOnHome ? "shiftSettings.hideFromHome" : "shiftSettings.showOnHome",
+      { name: displayPresetName(preset) }
+    );
+    button.innerHTML = icon(preset.visibleOnHome ? "eye" : "eyeOff", 15);
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-pressed", String(preset.visibleOnHome));
+    button.title = label;
+  }
 }
 
 function renderCycle(options = {}) {
@@ -1885,6 +1988,31 @@ function setAuthTab(tab) {
   setAuthStatus("");
 }
 
+function resolveConfirmation(confirmed) {
+  const resolve = confirmationResolver;
+  confirmationResolver = null;
+  if (elements.confirmDialog.open) elements.confirmDialog.close();
+  resolve?.(confirmed);
+}
+
+function requestConfirmation({
+  message,
+  confirmLabel = t("confirm.continue"),
+  cancelLabel = t("common.cancel"),
+  danger = false
+}) {
+  if (confirmationResolver) resolveConfirmation(false);
+  elements.confirmMessage.textContent = message;
+  elements.confirmCancelLabel.textContent = cancelLabel;
+  elements.confirmAcceptLabel.textContent = confirmLabel;
+  elements.confirmAccept.classList.toggle("is-danger", danger);
+  return new Promise((resolve) => {
+    confirmationResolver = resolve;
+    elements.confirmDialog.showModal();
+    requestAnimationFrame(() => elements.confirmCancel.focus());
+  });
+}
+
 function openAuthDialog(tab = "login") {
   elements.accountPanel.hidden = true;
   elements.authTabs.hidden = false;
@@ -1956,6 +2084,7 @@ async function handleLogin(event) {
     closeAuthDialog();
     elements.loginForm.reset();
     showToast(t("auth.loggedIn"));
+    resumePendingSharedCycleImport();
   } catch (error) {
     setAuthStatus(errorMessage(error), true);
   } finally {
@@ -1989,6 +2118,7 @@ async function handleRegister(event) {
       closeAuthDialog();
       elements.registerForm.reset();
       showToast(data.bootstrap ? t("auth.adminCreated") : t("auth.registered"));
+      resumePendingSharedCycleImport();
     } else {
       setAuthStatus(t("auth.pending"));
       elements.registerForm.reset();
@@ -2247,6 +2377,191 @@ function calendarSequence(plan) {
     .join("");
 }
 
+function takeSharedCycleInputFromLocation() {
+  const url = new URL(window.location.href);
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const hashToken = hash.get("share");
+  const queryToken = url.searchParams.get("share");
+  const token = hashToken || queryToken;
+  if (!token) return "";
+
+  const input = url.href;
+  if (hashToken) {
+    hash.delete("share");
+    url.hash = hash.toString();
+  } else {
+    url.searchParams.delete("share");
+  }
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  return input;
+}
+
+function buildCycleShareLink(calendar) {
+  const sharePackage = buildCycleSharePackage(calendar.plan, shiftPresets);
+  const token = encodeCycleSharePackage(sharePackage);
+  return `${window.location.origin}${window.location.pathname}#share=${token}`;
+}
+
+function openCycleShareDialog(calendar) {
+  try {
+    const link = buildCycleShareLink(calendar);
+    activeShareCalendar = calendar;
+    elements.cycleShareDescription.textContent = t("saved.shareDescription", {
+      name: localizeBuiltInName(calendar.title)
+    });
+    elements.cycleShareLink.value = link;
+    elements.systemShareCycle.hidden = typeof navigator.share !== "function";
+    if (!elements.cycleShareDialog.open) elements.cycleShareDialog.showModal();
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  }
+}
+
+function closeCycleShareDialog() {
+  if (elements.cycleShareDialog.open) elements.cycleShareDialog.close();
+  activeShareCalendar = null;
+}
+
+async function copyCycleShareLink() {
+  try {
+    await copyText(elements.cycleShareLink.value);
+    showToast(t("toast.cycleShareCopied"));
+  } catch {
+    showToast(t("toast.copyFailed"), "error");
+  }
+}
+
+async function shareCycleNatively() {
+  if (!activeShareCalendar || typeof navigator.share !== "function") return;
+  try {
+    await navigator.share({
+      title: localizeBuiltInName(activeShareCalendar.title),
+      text: t("saved.shareText"),
+      url: elements.cycleShareLink.value
+    });
+  } catch (error) {
+    if (error?.name !== "AbortError") showToast(t("toast.shareFailed"), "error");
+  }
+}
+
+function openCycleImportDialog(prefill = "") {
+  if (!currentUser) {
+    pendingSharedCycleInput = prefill;
+    openAuthDialog("login");
+    return;
+  }
+  showView("calendars");
+  elements.cycleImportForm.reset();
+  elements.cycleImportInput.value = prefill;
+  setFormStatus(elements.cycleImportStatus, "");
+  elements.cycleImportSubmit.disabled = false;
+  if (!elements.cycleImportDialog.open) elements.cycleImportDialog.showModal();
+  requestAnimationFrame(() => {
+    elements.cycleImportInput.focus();
+    if (prefill) elements.cycleImportInput.select();
+  });
+}
+
+function closeCycleImportDialog() {
+  if (elements.cycleImportDialog.open) elements.cycleImportDialog.close();
+  elements.cycleImportForm.reset();
+  setFormStatus(elements.cycleImportStatus, "");
+  elements.cycleImportSubmit.disabled = false;
+}
+
+function resumePendingSharedCycleImport() {
+  if (!pendingSharedCycleInput || !currentUser) return false;
+  const input = pendingSharedCycleInput;
+  pendingSharedCycleInput = null;
+  openCycleImportDialog(input);
+  return true;
+}
+
+async function prepareImportedCycle(sharePackage) {
+  const importedState = normalizeClientPlan(sharePackage.plan);
+  const { mapping, missing } = matchSharedPresets(sharePackage.presets, shiftPresets);
+
+  if (missing.length) {
+    const names = new Intl.ListFormat(getLocale(), {
+      style: "long",
+      type: "conjunction"
+    }).format(missing.slice(0, 4).map((preset) => preset.name));
+    const shouldCreate = await requestConfirmation({
+      message: t("confirm.createMissingPresets", {
+        count: missing.length,
+        names,
+        more: missing.length > 4 ? t("common.more") : ""
+      }),
+      confirmLabel: t("confirm.createAndImport"),
+      cancelLabel: t("confirm.importWithoutCreating")
+    });
+    if (shouldCreate) {
+      if (shiftPresets.length + missing.length > MAX_SHIFT_PRESETS) {
+        throw new Error("shift_library_full");
+      }
+      for (const sharedPreset of missing) {
+        const requestedId = cleanText(sharedPreset.id, 80);
+        const id =
+          /^[a-zA-Z0-9_-]+$/.test(requestedId) && !getShiftPreset(requestedId)
+            ? requestedId
+            : `custom-${makeId()}`;
+        const preset = normalizeShiftPreset({ ...sharedPreset, id }, shiftPresets.length);
+        shiftPresets.push(preset);
+        mapping.set(sharedPreset.id, preset.id);
+      }
+      saveShiftPresets();
+      renderPresets();
+      renderShiftSettings();
+    } else {
+      for (const preset of missing) mapping.set(preset.id, null);
+    }
+  }
+
+  for (const shift of importedState.cycle) {
+    if (!shift.presetId) continue;
+    shift.presetId = mapping.has(shift.presetId) ? mapping.get(shift.presetId) : null;
+  }
+  return importedState;
+}
+
+async function importSharedCycle(event) {
+  event.preventDefault();
+  if (!currentUser) {
+    pendingSharedCycleInput = elements.cycleImportInput.value.trim();
+    closeCycleImportDialog();
+    openAuthDialog("login");
+    return;
+  }
+  const input = elements.cycleImportInput.value.trim();
+  if (!input) {
+    setFormStatus(elements.cycleImportStatus, t("saved.importPlaceholder"), true);
+    elements.cycleImportInput.focus();
+    return;
+  }
+
+  elements.cycleImportSubmit.disabled = true;
+  setFormStatus(elements.cycleImportStatus, t("saved.importing"));
+  try {
+    const sharePackage = decodeCycleShareInput(input);
+    const importedState = await prepareImportedCycle(sharePackage);
+    await api("/api/calendars", {
+      method: "POST",
+      body: JSON.stringify({
+        title: importedState.title,
+        plan: compactPlan(importedState)
+      })
+    });
+    await refreshCalendars({ quiet: true });
+    closeCycleImportDialog();
+    showView("calendars");
+    showToast(t("toast.cycleImported"));
+  } catch (error) {
+    setFormStatus(elements.cycleImportStatus, errorMessage(error), true);
+  } finally {
+    elements.cycleImportSubmit.disabled = false;
+  }
+}
+
 function renderMergedSubscription() {
   const selectedCount = selectedCalendarIds.size;
   const activeSubscription =
@@ -2384,6 +2699,7 @@ function renderCalendarList() {
             </div>
           </div>
           <div class="calendar-row-actions">
+            <button class="row-action" type="button" data-calendar-action="share" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.share"))}" title="${escapeHTML(t("saved.share"))}">${icon("share", 15)}</button>
             <button class="row-action" type="button" data-calendar-action="copy" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.copyLink"))}" title="${escapeHTML(t("saved.copyLink"))}">${icon("copy", 15)}</button>
             <button class="row-action" type="button" data-calendar-action="edit" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.edit"))}" title="${escapeHTML(t("saved.edit"))}">${icon("edit", 15)}</button>
             <button class="row-action is-danger" type="button" data-calendar-action="delete" data-id="${calendar.id}" aria-label="${escapeHTML(t("saved.delete"))}" title="${escapeHTML(t("saved.delete"))}">${icon("trash", 15)}</button>
@@ -2480,9 +2796,12 @@ async function copyMergedSubscriptionLink() {
 }
 
 async function deleteSavedCalendar(calendar) {
-  if (!window.confirm(t("confirm.deleteCalendar", { name: localizeBuiltInName(calendar.title) }))) {
-    return;
-  }
+  const confirmed = await requestConfirmation({
+    message: t("confirm.deleteCalendar", { name: localizeBuiltInName(calendar.title) }),
+    confirmLabel: t("confirm.deleteAction"),
+    danger: true
+  });
+  if (!confirmed) return;
   try {
     await api(`/api/calendars/${calendar.id}`, { method: "DELETE" });
     if (activeCalendarId === calendar.id) {
@@ -2721,7 +3040,12 @@ async function importAdminBackup(event) {
     setFormStatus(elements.backupStatus, t("backup.chooseFile"), true);
     return;
   }
-  if (!window.confirm(t("confirm.importBackup"))) return;
+  const confirmed = await requestConfirmation({
+    message: t("confirm.importBackup"),
+    confirmLabel: t("confirm.importAction"),
+    danger: true
+  });
+  if (!confirmed) return;
 
   elements.backupImportButton.disabled = true;
   setFormStatus(elements.backupStatus, t("backup.importing"));
@@ -3100,9 +3424,42 @@ function bindEvents() {
       }, 0);
     }
     if (action.dataset.presetAction === "remove") removeShiftPreset(action.dataset.id);
+    if (action.dataset.presetAction === "visibility") {
+      toggleShiftPresetVisibility(action.dataset.id);
+    }
+  });
+
+  elements.confirmCancel.addEventListener("click", () => resolveConfirmation(false));
+  elements.confirmAccept.addEventListener("click", () => resolveConfirmation(true));
+  elements.confirmDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    resolveConfirmation(false);
+  });
+  elements.confirmDialog.addEventListener("click", (event) => {
+    if (event.target === elements.confirmDialog) resolveConfirmation(false);
+  });
+  elements.confirmDialog.addEventListener("close", () => {
+    if (confirmationResolver) resolveConfirmation(false);
   });
 
   elements.newCalendarButton.addEventListener("click", startNewCalendar);
+  elements.importCycleButton.addEventListener("click", () => openCycleImportDialog());
+  elements.cycleShareClose.addEventListener("click", closeCycleShareDialog);
+  elements.cycleShareDialog.addEventListener("click", (event) => {
+    if (event.target === elements.cycleShareDialog) closeCycleShareDialog();
+  });
+  elements.cycleShareDialog.addEventListener("cancel", closeCycleShareDialog);
+  elements.copyCycleShare.addEventListener("click", copyCycleShareLink);
+  elements.systemShareCycle.addEventListener("click", shareCycleNatively);
+  elements.cycleImportClose.addEventListener("click", closeCycleImportDialog);
+  elements.cycleImportDialog.addEventListener("click", (event) => {
+    if (event.target === elements.cycleImportDialog) closeCycleImportDialog();
+  });
+  elements.cycleImportDialog.addEventListener("cancel", closeCycleImportDialog);
+  elements.cycleImportForm.addEventListener("submit", importSharedCycle);
+  elements.cycleImportInput.addEventListener("input", () => {
+    setFormStatus(elements.cycleImportStatus, "");
+  });
   elements.calendarList.addEventListener("change", (event) => {
     const checkbox = event.target.closest("[data-calendar-select]");
     if (!checkbox) return;
@@ -3114,6 +3471,7 @@ function bindEvents() {
     const calendar = calendars.find((item) => item.id === button.dataset.id);
     if (!calendar) return;
     if (button.dataset.calendarAction === "copy") await copyCalendarLink(calendar);
+    if (button.dataset.calendarAction === "share") openCycleShareDialog(calendar);
     if (button.dataset.calendarAction === "edit") loadCalendarIntoBuilder(calendar);
     if (button.dataset.calendarAction === "delete") await deleteSavedCalendar(calendar);
   });
@@ -3175,6 +3533,12 @@ async function initialize() {
   elements.inviteExpiry.value = addDays(todayISODate(), 7);
 
   await refreshSession();
+  const sharedInput = takeSharedCycleInputFromLocation();
+  if (sharedInput) {
+    pendingSharedCycleInput = sharedInput;
+    if (currentUser) resumePendingSharedCycleImport();
+    else openAuthDialog("login");
+  }
   scheduleSave();
 }
 
