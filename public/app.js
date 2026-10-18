@@ -972,6 +972,39 @@ function renderShiftSettings() {
               aria-label="${escapeHTML(t("shiftSettings.nameAria", { index: index + 1 }))}"
               autocomplete="off"
             />
+            <div class="shift-preset-mode">
+              <div class="kind-control shift-preset-kind" role="group" aria-label="${escapeHTML(t("shiftSettings.kindAria", { name: displayPresetName(preset) }))}">
+                <button
+                  type="button"
+                  data-preset-action="kind"
+                  data-kind="work"
+                  data-id="${preset.id}"
+                  aria-pressed="${!isOff}"
+                >${t("common.work")}</button>
+                <button
+                  type="button"
+                  data-preset-action="kind"
+                  data-kind="off"
+                  data-id="${preset.id}"
+                  aria-pressed="${isOff}"
+                >${t("common.rest")}</button>
+              </div>
+              ${
+                isOff
+                  ? `
+                    <label class="rest-all-day-control">
+                      <input
+                        type="checkbox"
+                        data-preset-field="allDayRest"
+                        data-id="${preset.id}"
+                        ${allDayRest ? "checked" : ""}
+                      />
+                      <span>${t("shiftSettings.allDayRest")}</span>
+                    </label>
+                  `
+                  : ""
+              }
+            </div>
             <button
               class="shift-preset-visibility"
               type="button"
@@ -992,39 +1025,6 @@ function renderShiftSettings() {
               ))}"
             >${icon(preset.visibleOnHome !== false ? "eye" : "eyeOff", 15)}</button>
             <button class="shift-preset-remove" type="button" data-preset-action="remove" data-id="${preset.id}" aria-label="${escapeHTML(t("shiftSettings.remove", { name: displayPresetName(preset) }))}">${icon("trash", 15)}</button>
-          </div>
-          <div class="shift-preset-mode">
-            <div class="kind-control shift-preset-kind" role="group" aria-label="${escapeHTML(t("shiftSettings.kindAria", { name: displayPresetName(preset) }))}">
-              <button
-                type="button"
-                data-preset-action="kind"
-                data-kind="work"
-                data-id="${preset.id}"
-                aria-pressed="${!isOff}"
-              >${t("common.work")}</button>
-              <button
-                type="button"
-                data-preset-action="kind"
-                data-kind="off"
-                data-id="${preset.id}"
-                aria-pressed="${isOff}"
-              >${t("common.rest")}</button>
-            </div>
-            ${
-              isOff
-                ? `
-                  <label class="rest-all-day-control">
-                    <input
-                      type="checkbox"
-                      data-preset-field="allDayRest"
-                      data-id="${preset.id}"
-                      ${allDayRest ? "checked" : ""}
-                    />
-                    <span>${t("shiftSettings.allDayRest")}</span>
-                  </label>
-                `
-                : ""
-            }
           </div>
           ${
             isOff && allDayRest
