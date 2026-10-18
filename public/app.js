@@ -561,6 +561,7 @@ function createDefaultState() {
     durationMonths: DEFAULT_MEMBER_MONTHS,
     backwardCycle: false,
     backwardMonths: DEFAULT_BACKWARD_MONTHS,
+    calendarId: null,
     cycle,
     todayId: cycle[0].id
   };
@@ -651,6 +652,9 @@ function normalizeClientPlan(raw) {
       raw.bm ?? raw.backwardMonths,
       DEFAULT_BACKWARD_MONTHS
     ),
+    calendarId: /^[A-Za-z0-9_-]{1,80}$/.test(String(raw.calendarId ?? ""))
+      ? String(raw.calendarId)
+      : null,
     cycle,
     todayId: cycle[todayIndex].id
   };
@@ -2280,6 +2284,7 @@ async function refreshSession() {
     if (!currentUser) setWelcomeAuthStatus("");
   }
   applyUserUI();
+  if (currentUser && !(await restoreActiveCalendarContext())) invalidateLinks();
 }
 
 function setAuthTab(tab) {
@@ -2383,7 +2388,7 @@ async function establishAuthenticatedSession(user) {
   await loadShiftLibraryForUser(currentUser);
   currentLinks = null;
   applyUserUI();
-  invalidateLinks();
+  if (!(await restoreActiveCalendarContext())) invalidateLinks();
 }
 
 async function handleLogin(event) {
@@ -2583,12 +2588,42 @@ async function persistCalendar() {
       });
 
   activeCalendarId = data.calendar.id;
+  state.calendarId = activeCalendarId;
   currentLinks = buildLinks(data.calendar.subscriptionPath, totalCoverageMonths());
   elements.linkText.textContent = `${window.location.host}${data.calendar.subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   updateActionLabels();
+  scheduleSave();
   await refreshCalendars({ quiet: true });
   return currentLinks;
+}
+
+async function restoreActiveCalendarContext() {
+  if (!currentUser || !state.calendarId) return false;
+  try {
+    const data = await api("/api/calendars");
+    calendars = data.calendars || [];
+    const calendar = calendars.find((item) => item.id === state.calendarId);
+    if (!calendar) {
+      activeCalendarId = null;
+      state.calendarId = null;
+      currentLinks = null;
+      renderCalendarList();
+      scheduleSave();
+      return false;
+    }
+
+    activeCalendarId = calendar.id;
+    currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
+    elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
+    elements.copyLinkIcon.disabled = false;
+    renderCalendarList();
+    updateValidation();
+    scheduleSave();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function ensureLinks(confirmTimezone = true) {
@@ -3057,6 +3092,7 @@ function loadCalendarIntoBuilder(calendar) {
   state = normalizeClientPlan(calendar.plan);
   ensureCyclePresetAssignments();
   state.title = localizeBuiltInName(calendar.title);
+  state.calendarId = calendar.id;
   timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
@@ -3067,6 +3103,7 @@ function loadCalendarIntoBuilder(calendar) {
   renderPreview();
   elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
+  scheduleSave();
   showView("builder");
 }
 
@@ -3079,6 +3116,7 @@ function startNewCalendar() {
   syncFieldValues();
   renderCycle();
   renderPreview();
+  scheduleSave();
   showView("builder");
   document.querySelector(".editor-heading")?.scrollIntoView({
     block: "start",
@@ -3123,7 +3161,9 @@ async function deleteSavedCalendar(calendar) {
     await api(`/api/calendars/${calendar.id}`, { method: "DELETE" });
     if (activeCalendarId === calendar.id) {
       activeCalendarId = null;
+      state.calendarId = null;
       currentLinks = null;
+      scheduleSave();
     }
     await refreshCalendars({ quiet: true });
     showToast(t("toast.calendarDeleted"));
