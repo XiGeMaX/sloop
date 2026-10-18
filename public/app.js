@@ -635,7 +635,13 @@ function normalizeClientPlan(raw) {
     };
   });
 
-  const sourceToday = Number(raw.i ?? raw.todayIndex ?? 0);
+  const sourceTodayId = cleanText(raw.todayId, 80);
+  const sourceTodayById = sourceCycle.findIndex(
+    (source) => !Array.isArray(source) && cleanText(source?.id, 80) === sourceTodayId
+  );
+  const sourceToday = Number(
+    raw.i ?? raw.todayIndex ?? (sourceTodayById >= 0 ? sourceTodayById : 0)
+  );
   const todayIndex =
     Number.isInteger(sourceToday) && sourceToday >= 0 && sourceToday < cycle.length ? sourceToday : 0;
 
