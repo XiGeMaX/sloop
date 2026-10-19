@@ -125,8 +125,11 @@ pnpm dev
 
 仓库包含两阶段镜像：Node.js 只负责构建前端，最终镜像只运行 Go 服务。SQLite 数据保存在 `/data`。
 
+`compose.yaml` 默认从 Docker Hub 拉取 `docker.io/xigemax/sloop:latest`。GHCR 镜像地址为 `ghcr.io/xigemax/sloop:latest`。
+
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 打开 <http://localhost:2167>。可选的 `.env` 示例：
@@ -135,7 +138,16 @@ docker compose up -d --build
 PORT=2167
 DEFAULT_TIMEZONE=Asia/Shanghai
 LINK_SIGNING_SECRET=
+SLOOP_IMAGE=docker.io/xigemax/sloop:latest
 ```
+
+如需改用 GHCR，将 `.env` 中的镜像地址改为：
+
+```dotenv
+SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
+```
+
+修改后重新执行 `docker compose pull` 和 `docker compose up -d`。如需从当前源码构建本地镜像，可使用 `docker build -t sloop .`。
 
 建议将 `/data` 卷和宿主机备份计划一起管理。容器以非 root 用户运行，启动时自动应用内嵌迁移，并通过 `GET /api/health` 检查数据库连接。
 
@@ -282,8 +294,11 @@ If `LINK_SIGNING_SECRET` is empty, Sloop creates a persistent 256-bit key file o
 
 ### Docker
 
+The `compose.yaml` file pulls a prebuilt image and defaults to Docker Hub at `docker.io/xigemax/sloop:latest`. The GHCR image is `ghcr.io/xigemax/sloop:latest`.
+
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Open <http://localhost:2167>. The final image runs as an unprivileged user, applies embedded migrations at startup, stores data in `/data`, and exposes a health check at `GET /api/health`.
@@ -294,7 +309,16 @@ Create `.env` if you need to override defaults:
 PORT=2167
 DEFAULT_TIMEZONE=Asia/Shanghai
 LINK_SIGNING_SECRET=
+SLOOP_IMAGE=docker.io/xigemax/sloop:latest
 ```
+
+To pull from GHCR instead, set:
+
+```dotenv
+SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
+```
+
+Run `docker compose pull` and `docker compose up -d` again after changing the image. To build a local image from the current source, use `docker build -t sloop .`.
 
 To run the compiled binary directly:
 
