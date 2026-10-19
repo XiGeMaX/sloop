@@ -147,7 +147,15 @@ SLOOP_IMAGE=docker.io/xigemax/sloop:latest
 SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
 ```
 
-修改后重新执行 `docker compose pull` 和 `docker compose up -d`。如需从当前源码构建本地镜像，可使用 `docker build -t sloop .`。
+修改后重新执行 `docker compose pull` 和 `docker compose up -d`。
+
+从当前源码构建并启动：
+
+```bash
+docker compose up -d --build
+```
+
+容器入口会先修正 `/data` 卷的归属，再以非 root 的 `sloop` 用户运行服务。已有卷出现 `permission denied` 时，重新构建并启动即可。
 
 建议将 `/data` 卷和宿主机备份计划一起管理。容器以非 root 用户运行，启动时自动应用内嵌迁移，并通过 `GET /api/health` 检查数据库连接。
 
@@ -303,6 +311,14 @@ docker compose up -d
 
 Open <http://localhost:2167>. The final image runs as an unprivileged user, applies embedded migrations at startup, stores data in `/data`, and exposes a health check at `GET /api/health`.
 
+To build and run from the current source:
+
+```bash
+docker compose up -d --build
+```
+
+The entrypoint repairs the ownership of an existing `/data` volume before dropping privileges to the unprivileged `sloop` user.
+
 Create `.env` if you need to override defaults:
 
 ```dotenv
@@ -318,7 +334,7 @@ To pull from GHCR instead, set:
 SLOOP_IMAGE=ghcr.io/xigemax/sloop:latest
 ```
 
-Run `docker compose pull` and `docker compose up -d` again after changing the image. To build a local image from the current source, use `docker build -t sloop .`.
+Run `docker compose pull` and `docker compose up -d` again after changing the image.
 
 To run the compiled binary directly:
 

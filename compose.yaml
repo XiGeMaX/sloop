@@ -1,6 +1,9 @@
 services:
   sloop:
     image: "${SLOOP_IMAGE:-docker.io/xigemax/sloop:latest}"
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: sloop
     ports:
       - "${PORT:-2167}:2167"

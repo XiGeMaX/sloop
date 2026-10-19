@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sloop ./cmd/sloop 
 
 FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates tini \
+RUN apk add --no-cache ca-certificates su-exec tini \
     && addgroup -S sloop \
     && adduser -S -G sloop -h /app sloop \
     && mkdir -p /app /data \
@@ -32,9 +32,9 @@ RUN apk add --no-cache ca-certificates tini \
 COPY --from=backend /out/sloop /app/sloop
 COPY --from=backend /out/sloop-admin /app/sloop-admin
 COPY --from=frontend /src/public /app/public
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 WORKDIR /app
-USER sloop
 
 ENV PORT=2167 \
     SLOOP_DATABASE_PATH=/data/sloop.db \
@@ -48,4 +48,5 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
-ENTRYPOINT ["/sbin/tini", "--", "/app/sloop"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/app/sloop"]
