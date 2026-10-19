@@ -42,22 +42,7 @@
     <link rel="apple-touch-icon" href="/assets/brand/sloop-icon-180.png" />
     <link rel="mask-icon" href="/assets/brand/sloop-mark.svg" color="#181B17" />
     <link rel="manifest" href="/site.webmanifest" />
-    <script>
-      (() => {
-        try {
-          const saved = localStorage.getItem("sloop.theme.v1");
-          const theme =
-            saved === "light" || saved === "dark"
-              ? saved
-              : window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-          document.documentElement.dataset.theme = theme;
-        } catch {
-          document.documentElement.dataset.theme = "light";
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="is-authenticating">

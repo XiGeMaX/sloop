@@ -7,19 +7,21 @@
   "scripts": {
     "build": "esbuild public/app.js --bundle --format=esm --outfile=public/app.bundle.js",
     "predev": "pnpm build",
-    "dev": "wrangler dev --port 2167",
-    "predeploy": "pnpm build",
-    "deploy": "wrangler deploy",
-    "admin:reset": "node scripts/reset-admin-password.mjs",
-    "test": "node --test",
-    "check": "node --check worker.js && node --check public/app.js && node --check public/i18n.js && pnpm build"
+    "dev": "go run ./cmd/sloop",
+    "start": "go run ./cmd/sloop",
+    "admin": "go run ./cmd/sloop-admin",
+    "admin:reset": "go run ./cmd/sloop-admin",
+    "test": "go test ./... && node --test test/*.test.mjs",
+    "test:go": "go test ./...",
+    "test:frontend": "node --test test/*.test.mjs",
+    "format:check": "test -z \"$(gofmt -l cmd internal migrations)\"",
+    "check": "pnpm format:check && go vet ./... && go test ./... && pnpm test:frontend && node --check public/app.js && node --check public/i18n.js && node --check public/theme-init.js && pnpm build"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2",
-    "wrangler": "^4.151.1"
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
     "i18next": "^26.4.7"

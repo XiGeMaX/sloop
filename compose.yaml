@@ -1,0 +1,17 @@
+services:
+  sloop:
+    build: .
+    container_name: sloop
+    ports:
+      - "${PORT:-2167}:2167"
+    environment:
+      DEFAULT_TIMEZONE: "${DEFAULT_TIMEZONE:-Asia/Shanghai}"
+      LINK_SIGNING_SECRET: "${LINK_SIGNING_SECRET:-}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - sloop-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  sloop-data:

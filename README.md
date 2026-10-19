@@ -17,19 +17,20 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/XiGeMaX/sloop" alt="Go version"></a>
 </p>
 
 ## 项目一览
 
-Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休息或自定义班次，指定周期从哪一天开始，然后导出 `.ics` 或生成订阅链接。所有周期功能都需要登录后使用，并提供成员审批、数据备份和自托管能力。
+Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休息或自定义班次，指定周期锚点，然后导出 `.ics` 或生成长期订阅链接。
 
 | | |
 | --- | --- |
-| 前端 | 原生 HTML、CSS、JavaScript，响应式布局，支持深色模式 |
-| 服务端 | Cloudflare Worker，单文件 API 与 ICS 生成器 |
-| 数据 | Cloudflare D1，SQL 迁移位于 `migrations/` |
-| 部署 | Cloudflare Workers，或基于 Wrangler 本地运行时的 Docker 镜像 |
-| 测试 | Node.js 内置测试运行器 |
+| 前端 | 原生 HTML、CSS、JavaScript，支持中英文、深色模式和响应式布局 |
+| 服务端 | Go 1.26+，标准库 HTTP 服务 |
+| 数据 | SQLite，WAL 模式，内嵌版本化迁移 |
+| 部署 | 单二进制或 Docker，不依赖外部数据库和 JavaScript 运行时 |
+| 测试 | `go test` + Node.js 前端单元测试 |
 
 ### 界面预览
 
@@ -43,505 +44,314 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 
 ## 中文
 
-### 这是什么
-
-很多日历工具擅长单次事件，却不擅长表达“工作两天、休息两天、再上四天夜班”这类不断重复的节奏。Sloop 把这个节奏建模为一个周期：周期内每天对应一个班次，今天则作为周期的锚点。生成日历后，未来每一行都从锚点继续推算。
-
-生成的 `.ics` 可以下载到本地，也可以通过带签名的 URL 订阅。成员可在同一账户下保存多份周期，再将它们合并成一个日历。
-
-### 能做什么
+### 功能
 
 **编排轮班**
 
-- 一个周期至少包含 1 天，天数不设固定上限；班次可拖着排序，也可用键盘调整。
-- 默认提供白班、夜班和休息，全部班次预设合计最多 12 个。
-- 工作班次使用 24 小时制；结束时间不晚于开始时间时按跨夜处理。
-- 每个班次可从 12 种颜色中选择，并同步显示在编辑区、预览和日历事件中。
-- 点选任意一天即可把它设为“今天”，周期会从该位置开始循环。
-- 休息日默认不写入日历；开启后以透明事件呈现。
-- 编辑中的班表会保存在浏览器本地，刷新页面后仍可继续。
+- 创建任意天数的周期，拖动或用键盘调整班次顺序。
+- 使用最多 12 个可复用班次预设，支持白班、夜班、休息和自定义时段。
+- 支持跨夜、多日班次、12 种颜色、休息日透明事件和周期锚点。
+- 草稿和班次预设保存在账户与浏览器本地。
 
-**导出与订阅**
+**订阅与共享**
 
-- 登录成员可下载已保存周期的 `.ics`，或生成带服务端签名的订阅地址。
-- 成员最多保存 50 份周期，单份订阅默认覆盖 12 个月，可调整为 1 到 24 个月。
-- 每份已保存周期都有稳定且带 HMAC 签名的订阅地址；编辑内容不会更换地址。
-- 本次升级将订阅签名切换到 v2，之前生成的成员与合并订阅地址全部失效，需要登录后重新复制。
-- 可将全部周期合并订阅，也可勾选部分周期生成单独签名、单独地址的合并日历。
-- 页面提供复制链接、下载文件和打开 `webcal:` 三种入口。
+- 每个成员最多保存 50 份周期。
+- 单份周期支持 1 到 24 个月的订阅范围。
+- 单周期和合并订阅都使用服务端 HMAC-SHA256 签名。
+- 可订阅全部周期，也可选择部分周期生成独立签名的合并链接。
+- 支持复制链接、下载 `.ics` 和打开 `webcal:`。
 
 **账户与管理**
 
-- 登录名由字母、数字、下划线或连字符组成，不使用邮箱；昵称仅用于展示。
-- 实例中的第一个注册账号自动成为管理员。
-- 后续注册默认进入待审批状态；使用有效邀请码注册则立即通过。
-- 管理员可审批、拒绝、停用或恢复账号，调整管理员/成员角色，并为其他用户重置密码。
-- 邀请码可设置使用次数上限和过期时间，默认最多使用 1 次。
-- 管理员可导出 JSON 备份，也可导入备份覆盖当前数据。
-- 备份不包含登录会话；导入后会强制所有人重新登录。
+- 用户名加密码登录，不收集邮箱。
+- 实例的第一个注册账号自动成为管理员。
+- 后续注册默认待审批；有效邀请码可立即通过。
+- 管理员可审批、拒绝、停用、恢复账号，调整角色并重置用户密码。
+- 邀请码支持次数上限和过期时间。
+- 管理员可导出或导入完整 JSON 备份。导入会覆盖便携数据并撤销全部会话。
 
-**双语与时区**
+### 为什么改成 Go + SQLite
 
-- 界面支持简体中文和英文，会记住用户选择，并在首次访问时跟随浏览器语言。
-- 周期保存 IANA 时区，默认 `Asia/Shanghai`。
-- 日历事件会按每个事件所在日期的 UTC 偏移换算，能够正确处理夏令时切换。
-- 英文界面在创建第一条订阅前会要求确认时区，减少跨地区使用时的误配。
+- 服务端只依赖一个 Go 二进制和本地 SQLite 文件。
+- 数据目录可直接挂载到宿主机或容器卷，便于备份和迁移。
+- 无外部数据库、Serverless 运行时或 JavaScript 服务端进程。
+- 密码哈希、会话令牌摘要和 v2 订阅签名格式沿用旧实现，已有账号和签名链接可继续使用。
 
-### 快速开始
+### 本地开发
 
-本地开发需要 Node.js 20+ 和 pnpm。
+需要 Go 1.26+、Node.js 20+ 和 pnpm。
 
 ```bash
 git clone https://github.com/XiGeMaX/sloop.git
 cd sloop
 corepack enable
 pnpm install
-cp .dev.vars.example .dev.vars
-pnpm exec wrangler d1 migrations apply sloop-db --local
 pnpm dev
 ```
 
-打开 <http://localhost:2167>。第一个完成注册的账号会成为当前实例的管理员。
+打开 <http://localhost:2167>。第一个完成注册的账号会成为管理员。`pnpm dev` 会先用 esbuild 生成 `public/app.bundle.js`，随后启动 Go 服务。
 
-`pnpm dev` 启动前会调用 esbuild，把前端入口和 `i18next` 资源打包为 `public/app.bundle.js`。这个文件只用于本地运行和部署构建，已加入 `.gitignore`。
+默认配置会创建：
 
-### 环境配置
-
-`.dev.vars` 在本地由 Wrangler 读取。生产环境应使用稳定、随机的签名密钥：
-
-```dotenv
-LINK_SIGNING_SECRET=replace-with-a-long-random-secret
+```text
+data/sloop.db
+data/signing-secret
 ```
 
-生成一个 256 位随机值：
+无需创建 `.env` 即可本地运行。需要自定义配置时，可以导出 [`.env.example`](.env.example) 中的变量：
 
 ```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+set -a
+. ./.env
+set +a
+pnpm dev
 ```
 
-| 变量或绑定 | 用途 |
-| --- | --- |
-| `LINK_SIGNING_SECRET` | 为成员单周期订阅和合并订阅生成 HMAC 签名；生产环境必须设置 |
-| `DEFAULT_TIMEZONE` | 新建周期的默认时区，默认 `Asia/Shanghai` |
-| `APP_ENV` | 应用环境标识，Wrangler 和 Docker 默认均为 `production` |
-| `PORT` | Docker 容器监听端口，默认 `2167` |
-| `DB` | D1 数据库绑定，由 `wrangler.jsonc` 配置 |
-| `ASSETS` | 静态资源绑定，指向 `public/` |
+### 配置
 
-更换 `LINK_SIGNING_SECRET` 会让此前生成的全部成员订阅链接失效。`GET /api/health` 可用于检查 D1 连接，并确认签名密钥是否已经配置。
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `PORT` | `2167` | HTTP 监听端口 |
+| `SLOOP_ADDR` | 空 | 完整监听地址；设置后覆盖 `PORT` |
+| `SLOOP_DATABASE_PATH` | `./data/sloop.db` | SQLite 数据库路径 |
+| `SLOOP_STATIC_DIR` | `./public` | 前端静态资源目录 |
+| `SLOOP_SECRET_FILE` | 数据库同目录的 `signing-secret` | 自动生成的持久签名密钥文件 |
+| `LINK_SIGNING_SECRET` | 空 | 显式 HMAC 密钥；设置后优先于密钥文件 |
+| `DEFAULT_TIMEZONE` | `Asia/Shanghai` | 新周期的默认 IANA 时区 |
 
-> [!IMPORTANT]
-> `.dev.vars` 不应提交到版本库。生产环境请通过 Wrangler Secret、容器编排平台的 Secret 或其他密钥管理系统注入签名密钥。
+未设置 `LINK_SIGNING_SECRET` 时，服务首次启动会在 `SLOOP_SECRET_FILE` 生成 256 位随机密钥。该文件和数据库必须一起备份；删除或更换它会让现有订阅链接失效。
 
 ### Docker 自托管
 
-Docker 镜像通过 Wrangler 的本地 Workers 运行时启动应用，D1 数据存放在 `/data`。容器每次启动都会先应用数据库迁移，然后监听 `2167` 端口。
-
-可以创建下面的 `compose.yaml` 从源码构建：
-
-```yaml
-services:
-  sloop:
-    build: .
-    container_name: sloop
-    ports:
-      - "2167:2167"
-    environment:
-      APP_ENV: production
-      DEFAULT_TIMEZONE: Asia/Shanghai
-      TZ: Asia/Shanghai
-      LINK_SIGNING_SECRET: "${LINK_SIGNING_SECRET}"
-    volumes:
-      - sloop-data:/data
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-    stop_grace_period: 30s
-
-volumes:
-  sloop-data:
-```
-
-在相同目录放置 `.env`：
-
-```dotenv
-LINK_SIGNING_SECRET=replace-with-a-long-random-secret
-```
-
-然后启动：
+仓库包含两阶段镜像：Node.js 只负责构建前端，最终镜像只运行 Go 服务。SQLite 数据保存在 `/data`。
 
 ```bash
 docker compose up -d --build
 ```
 
-访问 <http://localhost:2167>。请将 `sloop-data` 卷纳入备份计划；删除卷会同时删除账户、周期和邀请码。
+打开 <http://localhost:2167>。可选的 `.env` 示例：
 
-如果启动时没有提供 `LINK_SIGNING_SECRET`，入口脚本会生成仅当前容器有效的临时密钥。容器重启后，旧签名链接将无法继续使用，因此正式部署应始终显式配置该变量。
-
-GitHub Actions 会构建 `linux/amd64` 与 `linux/arm64` 镜像，并尝试发布到 GitHub Container Registry 和 Docker Hub。Docker Hub 发布需要仓库配置 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`。
-
-### Cloudflare Workers
-
-1. 创建 D1 数据库。
-
-   ```bash
-   pnpm exec wrangler d1 create sloop-db
-   ```
-
-2. 将返回的 `database_id` 写入 `wrangler.jsonc`。如果目标是新建数据库，请替换文件中现有的 ID。
-
-3. 添加生产签名密钥。
-
-   ```bash
-   pnpm exec wrangler secret put LINK_SIGNING_SECRET
-   ```
-
-4. 应用远程迁移并部署。
-
-   ```bash
-   pnpm exec wrangler d1 migrations apply sloop-db --remote
-   pnpm deploy
-   ```
-
-Worker 同时提供 API 和 `public/` 静态资源。部署完成后可继续绑定自定义域名。
-
-### 权限与安全设计
-
-| 身份 | 可执行操作 |
-| --- | --- |
-| 待审批用户 | 等待管理员处理，尚不能使用周期功能 |
-| 成员 | 保存最多 50 份周期，创建 1 到 24 个月的订阅与合并订阅 |
-| 管理员 | 拥有成员能力，并管理用户、邀请码、密码重置与数据备份 |
-
-- 密码使用随机盐和 PBKDF2-SHA256（100,000 次迭代，Cloudflare Workers 上限）存储。
-- 会话 Cookie 带 `HttpOnly` 和 `SameSite=Lax`；HTTPS 下自动添加 `Secure`。
-- 数据库只保存会话令牌的 SHA-256 摘要，不保存原始令牌。
-- 写操作要求同源请求，降低跨站请求伪造风险。
-- 旧的游客临时订阅表和公共订阅入口已移除，历史 `/api/guest.ics` 链接统一返回 `410 Gone`。
-- 成员订阅使用服务端 HMAC-SHA256 签名；无效签名、被停用账号或错误合并选择统一返回 404。
-- 日历响应带有私有缓存、`no-referrer` 与禁止索引提示，降低签名 URL 泄露风险。
-
-> [!WARNING]
-> 管理员备份包含密码哈希、用户资料和全部周期数据，应按敏感文件保管。导入操作会覆盖现有用户、邀请码和周期，并撤销全部会话。
-
-### ICS 生成规则
-
-- 班次时间先按周期时区换算，再以 UTC 写入 `DTSTART`/`DTEND`。
-- 工作班次的结束时间早于或等于开始时间时，表示跨到第二天；开始与结束完全相同会被拒绝。
-- 开启“休息日写入日历”后，普通休息日生成全天透明事件；跨夜班之后的休息从下班时刻起连续 24 小时。
-- 日历声明 1 小时刷新间隔，但最终刷新频率由日历客户端决定。
-- 合并订阅为每份周期分配独立 UID 命名空间，避免相同班次名产生冲突。
-- 长行按 iCalendar 的 UTF-8 字节数限制折行。
-
-### 开发与验证
-
-```bash
-pnpm test
-pnpm check
+```dotenv
+PORT=2167
+DEFAULT_TIMEZONE=Asia/Shanghai
+LINK_SIGNING_SECRET=
 ```
 
-`pnpm test` 覆盖计划校验、周期锚点、跨夜与休息规则、时区/夏令时、登录门禁、签名订阅、合并选择、备份恢复、管理员恢复和 ICS 转义/折行。
+建议将 `/data` 卷和宿主机备份计划一起管理。容器以非 root 用户运行，启动时自动应用内嵌迁移，并通过 `GET /api/health` 检查数据库连接。
 
-`pnpm check` 会检查 Worker、前端与国际化脚本语法，并重新构建浏览器包。
+也可以直接运行二进制：
+
+```bash
+make build
+SLOOP_DATABASE_PATH=./data/sloop.db \
+SLOOP_STATIC_DIR=./public \
+./bin/sloop
+```
+
+### 从旧实例迁移
+
+不支持直接迁移旧运行时的数据库文件。可移植迁移路径是管理员 JSON 备份：
+
+1. 在旧实例中登录管理员，下载管理员备份 JSON。
+2. 启动新的 Go + SQLite 实例。
+3. 首次注册一个临时管理员。
+4. 在人员管理页面导入 JSON 备份。
+5. 导入会撤销全部会话；使用备份中的管理员账号和原密码重新登录。
+
+密码哈希格式兼容，因此不需要重置用户密码。若还需保留现有订阅链接，请把旧实例的 HMAC 密钥配置为新的 `LINK_SIGNING_SECRET`，并在迁移时保留原 `shareSlug`。备份本身不包含签名密钥。
+
+### 安全设计
+
+- 密码使用随机盐和 PBKDF2-SHA256（100,000 次迭代）存储。
+- 会话 Cookie 使用 `HttpOnly` 和 `SameSite=Lax`；HTTPS 请求自动添加 `Secure`。
+- 数据库只保存会话令牌的 SHA-256 摘要。
+- 所有写请求执行同源检查。
+- 静态页面使用 CSP、`X-Frame-Options: DENY`、`nosniff` 和 `no-referrer`。
+- 订阅响应使用签名校验、私有缓存和禁止索引提示。
+- 管理员备份包含密码哈希和全部周期数据，应按敏感文件保管。
+
+### 验证与构建
+
+```bash
+make test
+make check
+make build
+```
+
+`make check` 依次检查 Go 格式、运行 `go vet`、Go 测试、前端测试并重建浏览器包。CI 还会以 `-race` 运行 Go 测试、检查 `go mod tidy` 结果并构建多架构镜像。
 
 ### 管理员恢复
 
-先列出管理员：
+列出管理员：
 
 ```bash
-pnpm admin:reset -- --list-admins
+go run ./cmd/sloop-admin --list --database ./data/sloop.db
 ```
 
-为本地或 Cloudflare 上的管理员生成临时密码：
+重置管理员密码：
 
 ```bash
-pnpm admin:reset -- --username admin
-pnpm admin:reset -- --username admin --mode remote
+go run ./cmd/sloop-admin --username admin --database ./data/sloop.db
 ```
 
-Docker 中必须指向持久化目录：
+Docker 中直接执行镜像内的管理命令：
 
 ```bash
 docker exec -it sloop \
-  pnpm admin:reset -- \
-  --username admin \
-  --persist-to /data
+  /app/sloop-admin --username admin --database /data/sloop.db
 ```
 
-恢复命令会撤销目标管理员的全部会话。完整参数、自定义密码和故障排查见 [`docs/admin-password-reset.md`](docs/admin-password-reset.md)。
+完整参数和故障排查见 [`docs/admin-password-reset.md`](docs/admin-password-reset.md)。
 
 ### 目录结构
 
 ```text
-public/
-  index.html              应用页面
-  app.js                  编辑器、账户、管理界面与浏览器端行为
-  i18n.js                 中英文资源与 i18next 初始化
-  timezone.js             时区校验与常用时区列表
-  styles.css              响应式样式、主题与动效
-  assets/brand/           图标和应用资产
-worker.js                 API、认证、订阅、备份与 ICS 生成
-migrations/               D1 表结构和升级脚本
-scripts/                  管理员密码恢复命令
-test/                     Worker、ICS、时区、i18n 与管理命令测试
-docs/                     运维说明
-brand/                    品牌规范和展示素材
-screenshots/              README 截图
-Dockerfile                Docker 镜像定义
-docker-entrypoint.sh      容器启动、迁移与运行时配置
-wrangler.jsonc            Worker、D1、静态资源与 Cron 配置
+cmd/
+  sloop/                    HTTP 服务入口
+  sloop-admin/              管理员恢复命令行
+internal/
+  calendar/                 计划校验、ICS 与合并日历
+  config/                   环境变量与持久密钥
+  httpapi/                  HTTP API、静态文件与安全头
+  security/                 PBKDF2、令牌和 HMAC
+  store/                    SQLite、事务与备份导入导出
+migrations/                 内嵌的 SQLite 迁移
+public/                     原生前端与构建资源
+test/                       前端单元测试
+docs/                       运维文档
+Dockerfile                  多阶段自托管镜像
+compose.yaml                本地单机部署示例
 ```
 
 ---
 
 ## English
 
-### What it is
+### What it does
 
-Calendar apps handle individual events well, but they are awkward for repeating rhythms such as two days on, two days off, then four night shifts. Sloop treats the pattern as a cycle: each position in the cycle has a shift, and one chosen position is "today". Every future date is derived from that anchor.
+Sloop turns a repeating shift pattern into an ICS calendar. Each position in the cycle has a shift, and one selected position anchors the rotation. Signed-in members can save several cycles, download them, or subscribe to stable signed URLs.
 
-The result can be downloaded as an `.ics` file or exposed as a subscription URL. Signed-in members can store several cycles and combine them into one calendar.
+### Features
 
-### What you can do
+- Cycles of any length with drag-and-keyboard ordering.
+- Up to 12 reusable shift presets, including day, night, rest, and custom work periods.
+- Overnight and multi-day shifts, 12 colors, transparent rest events, and a movable cycle anchor.
+- Up to 50 saved cycles per member, each with a 1 to 24 month subscription range.
+- HMAC-SHA256-signed member and merged subscription links.
+- Account approval, role management, invite limits, expiry, password resets, and JSON backups.
+- First registered account becomes the administrator; later accounts wait for approval unless they use a valid invite.
 
-**Build a rotation**
+### Self-hosted architecture
 
-- Create a cycle with at least one day and no fixed upper limit, then reorder entries by drag and drop or the keyboard.
-- Start with day, night, and rest shifts, then keep up to 12 shift presets in total.
-- Set working shifts with 24-hour times. An end time at or before the start time becomes an overnight shift.
-- Pick from 12 colors that carry through the editor, preview, and generated events.
-- Select any cycle position to make it today and the anchor for the rotation.
-- Keep rest days out of the calendar by default, or include them as transparent events.
-- Keep an unfinished draft in browser storage across page reloads.
+| Layer | Implementation |
+| --- | --- |
+| Frontend | Native HTML, CSS, and JavaScript |
+| Backend | Go HTTP service |
+| Database | SQLite in WAL mode with embedded migrations |
+| Deployment | One binary or one container, no external database or server-side JavaScript runtime |
 
-**Share or subscribe**
+The server keeps the existing password hash, session token digest, and v2 subscription signing formats. Reusing the previous signing secret preserves existing signed subscription URLs after a backup restore.
 
-- Signed-in members can download an `.ics` file or create a server-signed subscription link.
-- Members can store up to 50 cycles, each with a 1 to 24 month subscription range and a 12 month default.
-- Saved cycles receive stable, HMAC-signed subscription URLs. Editing the cycle does not change its URL.
-- Subscriptions can include every saved cycle or only a checked subset. A selected merge gets its own signed URL.
-- Links can be copied, downloaded, or opened through `webcal:`.
+### Run locally
 
-**Manage people**
-
-- Accounts use a username and password rather than email; the nickname is display-only.
-- The first account created on an installation becomes its administrator.
-- Later registrations need approval unless they use a valid invite code.
-- Administrators can approve, reject, disable, or restore users, switch roles, and reset another user's password.
-- Invite codes support a usage limit and optional expiry, with a default limit of one use.
-- Administrators can export a JSON backup or import one to replace the current data.
-- Login sessions are excluded from backups. An import revokes every session so users must sign in again.
-
-**Language and time zones**
-
-- The interface is available in Simplified Chinese and English, remembers the selected language, and initially follows the browser locale.
-- Every cycle stores an IANA time zone, defaulting to `Asia/Shanghai`.
-- Event times are converted using the UTC offset in effect on each event date, including daylight-saving transitions.
-- Before creating the first link in the English interface, Sloop asks the user to confirm the time zone.
-
-### Quick start
-
-You need Node.js 20+ and pnpm.
+Requirements: Go 1.26+, Node.js 20+, and pnpm.
 
 ```bash
 git clone https://github.com/XiGeMaX/sloop.git
 cd sloop
 corepack enable
 pnpm install
-cp .dev.vars.example .dev.vars
-pnpm exec wrangler d1 migrations apply sloop-db --local
 pnpm dev
 ```
 
-Open <http://localhost:2167>. The first account registered against this instance receives the administrator role.
-
-Before starting the development server, `pnpm dev` uses esbuild to bundle the frontend entry point and `i18next` resources into `public/app.bundle.js`. The generated bundle is ignored by Git.
+Open <http://localhost:2167>. The first account registered is the administrator. The development command builds the browser bundle and starts the Go server. Default data is written to `data/sloop.db` and `data/signing-secret`.
 
 ### Configuration
 
-Wrangler reads local values from `.dev.vars`. Set a stable random signing secret for any deployment that will use member subscriptions:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `2167` | HTTP port |
+| `SLOOP_ADDR` | empty | Full listen address; overrides `PORT` when set |
+| `SLOOP_DATABASE_PATH` | `./data/sloop.db` | SQLite database path |
+| `SLOOP_STATIC_DIR` | `./public` | Frontend asset directory |
+| `SLOOP_SECRET_FILE` | `signing-secret` beside the database | Durable generated HMAC key file |
+| `LINK_SIGNING_SECRET` | empty | Explicit HMAC key; takes precedence over the key file |
+| `DEFAULT_TIMEZONE` | `Asia/Shanghai` | Default IANA time zone for new cycles |
 
-```dotenv
-LINK_SIGNING_SECRET=replace-with-a-long-random-secret
-```
+If `LINK_SIGNING_SECRET` is empty, Sloop creates a persistent 256-bit key file on first start. Back up that file with the SQLite database. Replacing it invalidates existing subscription links.
 
-Generate a 256-bit value with:
-
-```bash
-node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
-```
-
-| Variable or binding | Purpose |
-| --- | --- |
-| `LINK_SIGNING_SECRET` | HMAC key for member and merged subscriptions; required in production |
-| `DEFAULT_TIMEZONE` | Default IANA time zone for new cycles; defaults to `Asia/Shanghai` |
-| `APP_ENV` | Deployment environment label; Wrangler and Docker both default to `production` |
-| `PORT` | Docker listening port; defaults to `2167` |
-| `DB` | D1 database binding configured in `wrangler.jsonc` |
-| `ASSETS` | Static asset binding pointing at `public/` |
-
-Changing `LINK_SIGNING_SECRET` immediately invalidates all previously issued member subscription URLs. `GET /api/health` checks the D1 connection and reports whether a signing secret is present.
-
-> [!IMPORTANT]
-> Do not commit `.dev.vars`. In production, inject the signing secret through Wrangler Secrets, your container orchestrator, or another secret manager.
-
-### Run with Docker
-
-The Docker image starts the application with Wrangler's local Workers runtime and stores D1 data under `/data`. On each container start, pending migrations are applied before the server listens on port `2167`.
-
-The following `compose.yaml` builds directly from the checkout:
-
-```yaml
-services:
-  sloop:
-    build: .
-    container_name: sloop
-    ports:
-      - "2167:2167"
-    environment:
-      APP_ENV: production
-      DEFAULT_TIMEZONE: Asia/Shanghai
-      TZ: Asia/Shanghai
-      LINK_SIGNING_SECRET: "${LINK_SIGNING_SECRET}"
-    volumes:
-      - sloop-data:/data
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-    stop_grace_period: 30s
-
-volumes:
-  sloop-data:
-```
-
-Create `.env` next to it:
-
-```dotenv
-LINK_SIGNING_SECRET=replace-with-a-long-random-secret
-```
-
-Start the service:
+### Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-Then visit <http://localhost:2167>. Back up the `sloop-data` volume; removing it also removes users, cycles, and invite codes.
+Open <http://localhost:2167>. The final image runs as an unprivileged user, applies embedded migrations at startup, stores data in `/data`, and exposes a health check at `GET /api/health`.
 
-If `LINK_SIGNING_SECRET` is omitted, the entrypoint generates a temporary secret for that container only. A restart will then break existing signed links, so production installations should always provide the variable.
+Create `.env` if you need to override defaults:
 
-GitHub Actions builds `linux/amd64` and `linux/arm64` images and attempts to publish them to GitHub Container Registry and Docker Hub. Docker Hub publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets.
-
-### Deploy to Cloudflare Workers
-
-1. Create the D1 database.
-
-   ```bash
-   pnpm exec wrangler d1 create sloop-db
-   ```
-
-2. Put the returned `database_id` into `wrangler.jsonc`. Replace the existing ID when deploying against your own database.
-
-3. Store the production signing secret.
-
-   ```bash
-   pnpm exec wrangler secret put LINK_SIGNING_SECRET
-   ```
-
-4. Apply the migrations remotely and deploy.
-
-   ```bash
-   pnpm exec wrangler d1 migrations apply sloop-db --remote
-   pnpm deploy
-   ```
-
-The Worker serves both the API and the `public/` assets. A custom domain can be attached after the first deployment.
-
-### Access model and safeguards
-
-| Identity | Allowed actions |
-| --- | --- |
-| Pending user | Wait for administrator approval; cycle features remain unavailable |
-| Member | Store up to 50 cycles and create subscriptions or merged subscriptions covering 1 to 24 months |
-| Administrator | Use member features and manage users, invite codes, password resets, and backups |
-
-- Passwords are stored with PBKDF2-SHA256, a random salt, and 100,000 iterations (the Cloudflare Workers limit).
-- Session cookies use `HttpOnly` and `SameSite=Lax`; HTTPS deployments also receive `Secure`.
-- Only SHA-256 digests of session tokens are stored in D1.
-- Mutating requests require a same-origin request context.
-- The legacy guest subscription table and public subscription entry points are removed. Historical `/api/guest.ics` links return `410 Gone`.
-- Member subscriptions use server-side HMAC-SHA256 signatures. Invalid signatures, disabled owners, and invalid merge selections all return 404.
-- Subscription signatures now use v2. Every member and merged subscription URL generated before this upgrade is invalid and must be copied again after signing in.
-- Calendar responses use private caching, `no-referrer`, and indexing protections to limit exposure of signed URLs.
-
-> [!WARNING]
-> An administrator backup includes password hashes, profile data, and every cycle. Treat it as sensitive. Importing a backup replaces all users, invites, and cycles, then revokes every session.
-
-### How ICS output behaves
-
-- Shift times are converted from the cycle's time zone and written as UTC `DTSTART`/`DTEND` values.
-- For working shifts, an end time at or before the start time crosses midnight. Identical start and end times are rejected.
-- With rest days enabled, regular rest days become all-day transparent events. Rest following an overnight shift starts when that shift ends and lasts 24 hours.
-- Generated calendars advertise a one-hour refresh interval, though each calendar client decides when to refresh.
-- Merged calendars use a separate UID namespace per source cycle, preventing collisions between identically named shifts.
-- Long lines are folded according to iCalendar's UTF-8 byte limit.
-
-### Development and verification
-
-```bash
-pnpm test
-pnpm check
+```dotenv
+PORT=2167
+DEFAULT_TIMEZONE=Asia/Shanghai
+LINK_SIGNING_SECRET=
 ```
 
-`pnpm test` covers plan validation, today anchoring, overnight and rest behavior, time zones and daylight saving, the login gate, signed subscriptions, merged selections, backup restore, administrator recovery, and ICS escaping/line folding.
-
-`pnpm check` validates the Worker, frontend, and i18n scripts, then rebuilds the browser bundle.
-
-### Recover an administrator
-
-List administrator accounts:
+To run the compiled binary directly:
 
 ```bash
-pnpm admin:reset -- --list-admins
+make build
+SLOOP_DATABASE_PATH=./data/sloop.db \
+SLOOP_STATIC_DIR=./public \
+./bin/sloop
 ```
 
-Generate a temporary password for a local or remote administrator:
+### Migrating an existing installation
+
+Direct database-file migration from the previous runtime is not supported. Use an administrator JSON backup:
+
+1. Export the administrator backup from the existing installation.
+2. Start the new Go + SQLite server.
+3. Register a temporary administrator.
+4. Import the JSON backup from the member management page.
+5. All sessions are revoked. Sign in with an administrator account from the backup and its existing password.
+
+Existing password hashes are compatible. To keep old signed subscription URLs valid, configure the previous HMAC secret as `LINK_SIGNING_SECRET` before importing. The portable backup does not include the signing secret.
+
+### Security
+
+- PBKDF2-SHA256 with a random salt and 100,000 iterations.
+- `HttpOnly`, `SameSite=Lax` session cookies with automatic `Secure` on HTTPS.
+- Session tokens are stored only as SHA-256 digests.
+- Same-origin checks on mutating requests.
+- CSP, frame denial, MIME sniffing protection, and no-referrer headers.
+- Signed subscription URLs with private caching and indexing protection.
+- JSON backups contain password hashes and all cycle data and must be treated as sensitive.
+
+### Verify and build
 
 ```bash
-pnpm admin:reset -- --username admin
-pnpm admin:reset -- --username admin --mode remote
+make test
+make check
+make build
 ```
 
-Inside Docker, point the command at the persistent data directory:
+CI runs Go tests with the race detector, checks `go mod tidy`, runs frontend tests, and builds multi-architecture images.
+
+### Administrator recovery
+
+```bash
+go run ./cmd/sloop-admin --list --database ./data/sloop.db
+go run ./cmd/sloop-admin --username admin --database ./data/sloop.db
+```
+
+Inside Docker:
 
 ```bash
 docker exec -it sloop \
-  pnpm admin:reset -- \
-  --username admin \
-  --persist-to /data
+  /app/sloop-admin --username admin --database /data/sloop.db
 ```
 
-Recovery revokes every session for the selected administrator. See [`docs/admin-password-reset.md`](docs/admin-password-reset.md) for custom passwords, all options, and troubleshooting.
-
-### Repository layout
-
-```text
-public/
-  index.html              Application markup
-  app.js                  Editor, account, admin UI, and browser behavior
-  i18n.js                 Chinese/English resources and i18next setup
-  timezone.js             Time zone validation and common zone list
-  styles.css              Responsive styles, themes, and motion
-  assets/brand/           Icons and application assets
-worker.js                 API, auth, subscriptions, backups, and ICS generation
-migrations/               D1 schema and upgrade scripts
-scripts/                  Administrator recovery command
-test/                     Worker, ICS, time zone, i18n, and recovery tests
-docs/                     Operational documentation
-brand/                    Brand guidance and presentation assets
-screenshots/              README screenshots
-Dockerfile                Container image definition
-docker-entrypoint.sh      Container startup, migrations, and runtime configuration
-wrangler.jsonc            Worker, D1, static assets, and Cron settings
-```
+See [`docs/admin-password-reset.md`](docs/admin-password-reset.md) for custom passwords, dry runs, and troubleshooting.
 
 ## License
 

@@ -1,32 +1,51 @@
-FROM node:22-bookworm-slim
+FROM node:22-alpine AS frontend
 
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-
+WORKDIR /src
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
-
-WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
-COPY . .
-RUN pnpm build \
-    && chmod +x docker-entrypoint.sh \
-    && mkdir -p /data \
-    && chown -R node:node /app /data
+COPY public ./public
+RUN pnpm build
 
-USER node
+FROM golang:1.27-alpine AS backend
 
-ENV NODE_ENV=production
-ENV PORT=2167
-ENV APP_ENV=production
-ENV DEFAULT_TIMEZONE=Asia/Shanghai
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd ./cmd
+COPY internal ./internal
+COPY migrations ./migrations
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sloop ./cmd/sloop \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sloop-admin ./cmd/sloop-admin
+
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates tini \
+    && addgroup -S sloop \
+    && adduser -S -G sloop -h /app sloop \
+    && mkdir -p /app /data \
+    && chown sloop:sloop /data
+
+COPY --from=backend /out/sloop /app/sloop
+COPY --from=backend /out/sloop-admin /app/sloop-admin
+COPY --from=frontend /src/public /app/public
+
+WORKDIR /app
+USER sloop
+
+ENV PORT=2167 \
+    SLOOP_DATABASE_PATH=/data/sloop.db \
+    SLOOP_SECRET_FILE=/data/signing-secret \
+    SLOOP_STATIC_DIR=/app/public \
+    DEFAULT_TIMEZONE=Asia/Shanghai
 
 EXPOSE 2167
 VOLUME ["/data"]
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 2167) + '/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/api/health" || exit 1
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/app/sloop"]

@@ -1,7 +1,10 @@
 node_modules/
-.wrangler/
-.dev.vars
+.env
+.env.local
+bin/
 .DS_Store
 coverage/
+coverage.out
 public/app.bundle.js
 /data/
+signing-secret
