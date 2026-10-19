@@ -371,6 +371,73 @@ func TestServerLifecycle(t *testing.T) {
 	}
 }
 
+func TestUnsafeRequestsRequireSameOriginScheme(t *testing.T) {
+	harness := newTestHarness(t)
+
+	response, data := harness.request(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{
+			"username": "missing",
+			"password": "password-123",
+		},
+		map[string]string{
+			"Origin": strings.Replace(harness.server.URL, "http://", "https://", 1),
+		},
+	)
+	if response.StatusCode != http.StatusForbidden ||
+		!strings.Contains(string(data), `"cross_origin_request"`) {
+		t.Fatalf("cross-scheme origin status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{
+			"username": "missing",
+			"password": "password-123",
+		},
+		map[string]string{"Origin": harness.server.URL},
+	)
+	if response.StatusCode != http.StatusUnauthorized ||
+		!strings.Contains(string(data), `"invalid_credentials"`) {
+		t.Fatalf("same-origin login status = %d, body = %s", response.StatusCode, data)
+	}
+}
+
+func TestRequestLogPathRedactsCalendarTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "member subscription",
+			path: "/api/ics/share-slug.signature",
+			want: "/api/ics/[redacted]",
+		},
+		{
+			name: "merged subscription",
+			path: "/api/ics/merged/user-id.signature",
+			want: "/api/ics/[redacted]",
+		},
+		{
+			name: "regular API",
+			path: "/api/calendars",
+			want: "/api/calendars",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := requestLogPath(test.path); got != test.want {
+				t.Fatalf("requestLogPath(%q) = %q, want %q", test.path, got, test.want)
+			}
+		})
+	}
+}
+
 func TestInvalidBackupDoesNotReplaceData(t *testing.T) {
 	harness := newTestHarness(t)
 	response, data := harness.request(t, http.MethodPost, "/api/auth/register", map[string]any{

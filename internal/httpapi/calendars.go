@@ -138,7 +138,11 @@ func (s *Server) handleUpdateCalendar(
 	} else {
 		plan, err = store.PlanFromJSON(existing.PlanJSON, s.defaultTimezone)
 		if err != nil {
-			return &APIError{Status: http.StatusInternalServerError, Code: "calendar_data_invalid"}
+			return &APIError{
+				Status: http.StatusInternalServerError,
+				Code:   "calendar_data_invalid",
+				Cause:  err,
+			}
 		}
 	}
 	if title := calendar.CleanText(body["title"], 64, ""); title != "" {
@@ -151,11 +155,15 @@ func (s *Server) handleUpdateCalendar(
 	now := formatTimestamp(s.now().UTC())
 	if err := s.store.UpdateCalendar(
 		r.Context(),
+		user.ID,
 		calendarID,
 		plan.Title,
 		string(planJSON),
 		now,
 	); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return &APIError{Status: http.StatusNotFound, Code: "calendar_not_found"}
+		}
 		return err
 	}
 	existing.Title = plan.Title
@@ -260,7 +268,11 @@ func (s *Server) handleMemberCalendar(
 	}
 	plan, err := store.PlanFromJSON(value.PlanJSON, s.defaultTimezone)
 	if err != nil {
-		return &APIError{Status: http.StatusInternalServerError, Code: "calendar_data_invalid"}
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "calendar_data_invalid",
+			Cause:  err,
+		}
 	}
 	includeRest := plan.IncludeRest
 	content, err := calendar.BuildCalendar(plan, calendar.BuildOptions{
@@ -351,7 +363,11 @@ func (s *Server) handleMergedCalendar(
 func (s *Server) serializeCalendar(value store.Calendar) (calendarView, error) {
 	plan, err := decodeJSONValue([]byte(value.PlanJSON))
 	if err != nil {
-		plan = nil
+		return calendarView{}, &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "calendar_data_invalid",
+			Cause:  err,
+		}
 	}
 	signature := s.memberSubscriptionSignature(value.ShareSlug)
 	return calendarView{

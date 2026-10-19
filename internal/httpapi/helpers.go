@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // APIError is an HTTP-visible error with a stable JSON code.
@@ -145,20 +144,6 @@ func intFromJSON(value any, fallback int) int {
 	return fallback
 }
 
-func boolFromJSON(value any) bool {
-	switch typed := value.(type) {
-	case bool:
-		return typed
-	case json.Number:
-		number, _ := strconv.ParseFloat(typed.String(), 64)
-		return number != 0
-	case string:
-		return typed != ""
-	default:
-		return false
-	}
-}
-
 func stringFromJSON(value any) string {
 	switch typed := value.(type) {
 	case string:
@@ -170,8 +155,4 @@ func stringFromJSON(value any) string {
 	default:
 		return fmt.Sprint(typed)
 	}
-}
-
-func unixNow(now time.Time) int64 {
-	return now.Unix()
 }

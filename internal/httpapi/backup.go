@@ -50,8 +50,11 @@ func (s *Server) handleImportBackup(w http.ResponseWriter, r *http.Request) erro
 		return &APIError{Status: http.StatusBadRequest, Code: "invalid_backup"}
 	}
 	if err := s.store.ImportBackup(r.Context(), snapshot); err != nil {
-		s.logger.Error("backup_import_failed", "error", err)
-		return &APIError{Status: http.StatusBadRequest, Code: "invalid_backup"}
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "backup_import_failed",
+			Cause:  err,
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,

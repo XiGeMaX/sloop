@@ -102,7 +102,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.logger.Info(
 			"http_request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", requestLogPath(r.URL.Path),
 			"status", recorder.status,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
@@ -263,7 +263,7 @@ func requestScheme(r *http.Request) string {
 	if forwarded := strings.TrimSpace(strings.Split(
 		r.Header.Get("X-Forwarded-Proto"),
 		",",
-	)[0]); forwarded == "https" {
+	)[0]); strings.EqualFold(forwarded, "https") {
 		return "https"
 	}
 	return "http"
@@ -278,14 +278,22 @@ func sameOriginRequest(r *http.Request) bool {
 		return true
 	}
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host == "" {
+	if err != nil || parsed.Host == "" || parsed.User != nil {
 		return false
 	}
-	return strings.EqualFold(parsed.Host, r.Host)
+	return strings.EqualFold(parsed.Scheme, requestScheme(r)) &&
+		strings.EqualFold(parsed.Host, r.Host)
 }
 
 func isSafeMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+}
+
+func requestLogPath(path string) string {
+	if strings.HasPrefix(path, "/api/ics/") {
+		return "/api/ics/[redacted]"
+	}
+	return path
 }
 
 type statusRecorder struct {

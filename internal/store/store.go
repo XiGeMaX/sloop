@@ -86,6 +86,7 @@ type Registration struct {
 	PasswordSalt     string
 	InviteCode       string
 	CreatedAt        string
+	RegisteredAtUnix int64
 	SessionTokenHash string
 	SessionExpiresAt int64
 }
@@ -112,6 +113,17 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o750); err != nil {
 		return nil, fmt.Errorf("creating database directory: %w", err)
+	}
+	databaseFile, err := os.OpenFile(
+		absolutePath,
+		os.O_RDWR|os.O_CREATE,
+		0o600,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating database file: %w", err)
+	}
+	if err := databaseFile.Close(); err != nil {
+		return nil, fmt.Errorf("closing database file: %w", err)
 	}
 
 	fileURL := &url.URL{Scheme: "file", Path: absolutePath}
@@ -191,6 +203,9 @@ func (s *Store) Register(
 	ctx context.Context,
 	registration Registration,
 ) (RegistrationResult, error) {
+	if registration.RegisteredAtUnix <= 0 {
+		return RegistrationResult{}, errors.New("registration timestamp is required")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return RegistrationResult{}, fmt.Errorf("beginning registration: %w", err)
@@ -218,7 +233,6 @@ func (s *Store) Register(
 
 	var inviteID string
 	if registration.InviteCode != "" {
-		nowUnix := time.Now().Unix()
 		err := tx.QueryRowContext(
 			ctx,
 			`SELECT id
@@ -227,7 +241,7 @@ func (s *Store) Register(
 			   AND (expires_at IS NULL OR expires_at > ?)
 			 LIMIT 1`,
 			registration.InviteCode,
-			nowUnix,
+			registration.RegisteredAtUnix,
 		).Scan(&inviteID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return RegistrationResult{}, ErrInvalidInvite
@@ -932,18 +946,28 @@ func (s *Store) GetCalendarBySlug(ctx context.Context, slug string) (Calendar, e
 // UpdateCalendar stores a new plan and title.
 func (s *Store) UpdateCalendar(
 	ctx context.Context,
-	calendarID, title, planJSON, updatedAt string,
+	userID, calendarID, title, planJSON, updatedAt string,
 ) error {
-	_, err := s.db.ExecContext(
+	result, err := s.db.ExecContext(
 		ctx,
-		"UPDATE calendars SET title = ?, plan_json = ?, updated_at = ? WHERE id = ?",
+		`UPDATE calendars
+		 SET title = ?, plan_json = ?, updated_at = ?
+		 WHERE id = ? AND user_id = ?`,
 		title,
 		planJSON,
 		updatedAt,
 		calendarID,
+		userID,
 	)
 	if err != nil {
 		return fmt.Errorf("updating calendar: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking calendar update: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

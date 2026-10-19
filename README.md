@@ -217,7 +217,7 @@ go run ./cmd/sloop-admin --username admin --database ./data/sloop.db
 Docker 中直接执行镜像内的管理命令：
 
 ```bash
-docker exec -it sloop \
+docker exec -it -u sloop sloop \
   /app/sloop-admin --username admin --database /data/sloop.db
 ```
 
@@ -387,7 +387,7 @@ go run ./cmd/sloop-admin --username admin --database ./data/sloop.db
 Inside Docker:
 
 ```bash
-docker exec -it sloop \
+docker exec -it -u sloop sloop \
   /app/sloop-admin --username admin --database /data/sloop.db
 ```
 

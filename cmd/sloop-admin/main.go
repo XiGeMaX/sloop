@@ -80,7 +80,8 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("reading password: %w", err)
 		}
-		password = strings.TrimSpace(string(data))
+		password = strings.TrimSuffix(string(data), "\n")
+		password = strings.TrimSuffix(password, "\r")
 		if _, err := calendar.NormalizePassword(password); err != nil {
 			return errors.New("password must be 8-128 characters")
 		}

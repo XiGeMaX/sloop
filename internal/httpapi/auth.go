@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"github.com/xigemax/sloop/internal/calendar"
 	"github.com/xigemax/sloop/internal/security"
 	"github.com/xigemax/sloop/internal/store"
+)
+
+const (
+	dummyPasswordSalt = "MDAwMDAwMDAwMDAwMDAwMA=="
+	dummyPasswordHash = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 )
 
 type userView struct {
@@ -92,6 +98,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) error {
 		PasswordSalt:     salt,
 		InviteCode:       inviteCode,
 		CreatedAt:        createdAt,
+		RegisteredAtUnix: now.Unix(),
 		SessionTokenHash: security.HashToken(sessionToken),
 		SessionExpiresAt: expiresAt,
 	})
@@ -140,16 +147,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	user, err := s.store.FindUserByUsername(r.Context(), username)
-	if errors.Is(err, store.ErrNotFound) ||
-		(err == nil && !security.PasswordMatches(
-			password,
-			user.PasswordSalt,
-			user.PasswordHash,
-		)) {
+	if errors.Is(err, store.ErrNotFound) {
+		// Perform the same key derivation for unknown users to avoid a
+		// username-enumeration timing difference.
+		security.PasswordMatches(password, dummyPasswordSalt, dummyPasswordHash)
 		return &APIError{Status: http.StatusUnauthorized, Code: "invalid_credentials"}
 	}
 	if err != nil {
 		return err
+	}
+	if !security.PasswordMatches(password, user.PasswordSalt, user.PasswordHash) {
+		return &APIError{Status: http.StatusUnauthorized, Code: "invalid_credentials"}
 	}
 	switch user.Status {
 	case "pending":
@@ -312,11 +320,19 @@ func (s *Server) handleGetShiftLibrary(w http.ResponseWriter, r *http.Request) e
 	}
 	raw, err := decodeJSONValue([]byte(presetsJSON))
 	if err != nil {
-		return &APIError{Status: http.StatusInternalServerError, Code: "shift_library_invalid"}
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "shift_library_invalid",
+			Cause:  err,
+		}
 	}
 	presets, err := calendar.NormalizeShiftLibrary(raw)
 	if err != nil {
-		return &APIError{Status: http.StatusInternalServerError, Code: "shift_library_invalid"}
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "shift_library_invalid",
+			Cause:  err,
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"presets":   presets,
@@ -444,6 +460,13 @@ func decodeJSONValue(data []byte) (any, error) {
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return nil, fmt.Errorf("decoding JSON: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple JSON values")
+		}
+		return nil, fmt.Errorf("checking JSON trailing data: %w", err)
 	}
 	return value, nil
 }

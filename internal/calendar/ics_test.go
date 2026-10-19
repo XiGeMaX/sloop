@@ -272,6 +272,23 @@ func TestBuildMergedCalendarNamespacesUIDs(t *testing.T) {
 	}
 }
 
+func TestBuildMergedCalendarRejectsTrailingJSONData(t *testing.T) {
+	_, err := BuildMergedCalendar([]CalendarRow{
+		{
+			ID:        "calendar-a",
+			ShareSlug: "share-a",
+			PlanJSON: `{
+			  "title":"Cycle A","timezone":"Asia/Shanghai","durationMonths":1,
+			  "todayIndex":0,
+			  "cycle":[{"kind":"work","name":"Day","start":"08:00","end":"20:00"}]
+			} trailing`,
+		},
+	}, BuildOptions{Now: testNow, DefaultTZ: "Asia/Shanghai"})
+	if err == nil {
+		t.Fatal("BuildMergedCalendar accepted trailing JSON data")
+	}
+}
+
 func TestEscapeAndFoldICS(t *testing.T) {
 	if actual := EscapeText(`Early, A; B\C`); actual != `Early\, A\; B\\C` {
 		t.Errorf("escaped text = %q", actual)

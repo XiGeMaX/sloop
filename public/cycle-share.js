@@ -78,11 +78,35 @@ async function compressText(value) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function decompressText(value) {
+async function decompressText(value, maximumBytes) {
   const stream = new Blob([value])
     .stream()
     .pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Response(stream).text();
+  const reader = stream.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value: chunk } = await reader.read();
+      if (done) break;
+      totalBytes += chunk.byteLength;
+      if (totalBytes > maximumBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error("share_link_too_large");
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
 function packSharePackage(sharePackage) {
@@ -207,11 +231,9 @@ export async function decodeCycleShareInput(input) {
       throw new Error("share_compression_unavailable");
     }
     const json = await decompressText(
-      decodeBase64UrlBytes(token.slice(COMPRESSED_SHARE_PREFIX.length))
+      decodeBase64UrlBytes(token.slice(COMPRESSED_SHARE_PREFIX.length)),
+      MAX_DECODED_SHARE_LENGTH
     );
-    if (new TextEncoder().encode(json).byteLength > MAX_DECODED_SHARE_LENGTH) {
-      throw new Error("share_link_too_large");
-    }
     parsed = unpackSharePackage(JSON.parse(json));
   } catch (error) {
     if (

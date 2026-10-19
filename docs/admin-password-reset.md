@@ -30,7 +30,7 @@ go run ./cmd/sloop-admin --list --database ./data/sloop.db
 Docker：
 
 ```bash
-docker exec -it sloop \
+docker exec -it -u sloop sloop \
   /app/sloop-admin --list --database /data/sloop.db
 ```
 
@@ -88,7 +88,7 @@ unset SLOOP_NEW_ADMIN_PASSWORD
 容器内数据库默认位于 `/data/sloop.db`，`/data` 是持久化卷。必须在容器内指定这个路径：
 
 ```bash
-docker exec -it sloop \
+docker exec -it -u sloop sloop \
   /app/sloop-admin \
   --username admin \
   --database /data/sloop.db

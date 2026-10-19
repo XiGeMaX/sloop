@@ -100,3 +100,35 @@ func TestCalendarUpdatesDeletesAndSignedSubscriptions(t *testing.T) {
 		t.Fatalf("deleted member subscription status = %d", response.StatusCode)
 	}
 }
+
+func TestCalendarListRejectsCorruptPlanData(t *testing.T) {
+	harness := newTestHarness(t)
+	response, data := harness.request(t, http.MethodPost, "/api/auth/register", map[string]any{
+		"username": "admin",
+		"password": "admin-password-123",
+		"nickname": "Admin",
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("register admin status = %d, body = %s", response.StatusCode, data)
+	}
+	userID := decodeObject(t, data)["user"].(map[string]any)["id"].(string)
+
+	_, err := harness.store.CreateCalendar(
+		t.Context(),
+		userID,
+		"calendar-id-00000000",
+		"Corrupt",
+		`{"cycle":[]} trailing`,
+		"share-slug-0000000000",
+		"2026-10-18T00:00:00.000Z",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, data = harness.request(t, http.MethodGet, "/api/calendars", nil, nil)
+	if response.StatusCode != http.StatusInternalServerError ||
+		!strings.Contains(string(data), `"calendar_data_invalid"`) {
+		t.Fatalf("corrupt calendar list status = %d, body = %s", response.StatusCode, data)
+	}
+}

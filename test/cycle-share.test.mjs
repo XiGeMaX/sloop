@@ -83,3 +83,16 @@ test("rejects malformed share input", async () => {
   await assert.rejects(decodeCycleShareInput("not-a-share"), /invalid_share_link/);
   await assert.rejects(decodeCycleShareInput(""), /invalid_share_link/);
 });
+
+test("rejects decompression bombs before materializing the payload", async () => {
+  const compressed = await new Response(
+    new Blob([new Uint8Array(200_000)])
+      .stream()
+      .pipeThrough(new CompressionStream("deflate-raw"))
+  ).arrayBuffer();
+  const token = `z.${Buffer.from(compressed).toString("base64url")}`;
+  await assert.rejects(
+    decodeCycleShareInput(`https://sloop.example/#share=${token}`),
+    /share_link_too_large/
+  );
+});

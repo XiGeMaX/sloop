@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -127,19 +128,7 @@ func (s *Store) ExportBackup(
 			userRows.Close()
 			return BackupSnapshot{}, scanErr
 		}
-		snapshot.Data.Users = append(snapshot.Data.Users, BackupUser{
-			ID:           user.ID,
-			Username:     user.Username,
-			Nickname:     user.Nickname,
-			PasswordHash: user.PasswordHash,
-			PasswordSalt: user.PasswordSalt,
-			Role:         user.Role,
-			Status:       user.Status,
-			InviteCode:   user.InviteCode,
-			CreatedAt:    user.CreatedAt,
-			ApprovedAt:   user.ApprovedAt,
-			ApprovedBy:   user.ApprovedBy,
-		})
+		snapshot.Data.Users = append(snapshot.Data.Users, BackupUser(user))
 	}
 	if err := userRows.Err(); err != nil {
 		userRows.Close()
@@ -194,17 +183,12 @@ func (s *Store) ExportBackup(
 		}
 		plan, planErr := PlanFromJSON(value.PlanJSON, defaultTimezone)
 		if planErr != nil {
-			plan = calendar.Plan{}
-			snapshot.Data.Calendars = append(snapshot.Data.Calendars, BackupCalendar{
-				ID:        value.ID,
-				UserID:    value.UserID,
-				Title:     value.Title,
-				Plan:      nil,
-				ShareSlug: value.ShareSlug,
-				CreatedAt: value.CreatedAt,
-				UpdatedAt: value.UpdatedAt,
-			})
-			continue
+			calendarRows.Close()
+			return BackupSnapshot{}, fmt.Errorf(
+				"normalizing calendar %s for backup: %w",
+				value.ID,
+				planErr,
+			)
 		}
 		snapshot.Data.Calendars = append(snapshot.Data.Calendars, BackupCalendar{
 			ID:        value.ID,
@@ -237,11 +221,21 @@ func (s *Store) ExportBackup(
 		}
 		raw, decodeErr := decodeAny([]byte(presetsJSON))
 		if decodeErr != nil {
-			continue
+			libraryRows.Close()
+			return BackupSnapshot{}, fmt.Errorf(
+				"decoding shift library for %s: %w",
+				userID,
+				decodeErr,
+			)
 		}
 		presets, normalizeErr := calendar.NormalizeShiftLibrary(raw)
 		if normalizeErr != nil {
-			continue
+			libraryRows.Close()
+			return BackupSnapshot{}, fmt.Errorf(
+				"normalizing shift library for %s: %w",
+				userID,
+				normalizeErr,
+			)
 		}
 		snapshot.Data.ShiftLibraries = append(
 			snapshot.Data.ShiftLibraries,
@@ -358,6 +352,13 @@ func ParseBackup(raw any, defaultTimezone string) (BackupSnapshot, error) {
 // ImportBackup replaces all portable data in one transaction and revokes every
 // existing session.
 func (s *Store) ImportBackup(ctx context.Context, snapshot BackupSnapshot) error {
+	if snapshot.Format != BackupFormat || snapshot.Version != BackupVersion {
+		return errors.New("invalid backup")
+	}
+	if err := validateBackup(snapshot.Data); err != nil {
+		return err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

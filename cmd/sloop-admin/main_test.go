@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xigemax/sloop/internal/security"
 	"github.com/xigemax/sloop/internal/store"
@@ -36,6 +37,7 @@ func createRecoveryTestDatabase(t *testing.T) (string, string) {
 		PasswordHash:     hash,
 		PasswordSalt:     salt,
 		CreatedAt:        "2026-10-18T00:00:00.000Z",
+		RegisteredAtUnix: time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC).Unix(),
 		SessionTokenHash: security.HashToken("existing-session"),
 		SessionExpiresAt: 9999999999,
 	})
@@ -91,6 +93,48 @@ func TestRunResetsAdminPasswordAndRevokesSessions(t *testing.T) {
 	)
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("old session lookup error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRunPasswordStdinPreservesWhitespace(t *testing.T) {
+	databasePath, _ := createRecoveryTestDatabase(t)
+	var output bytes.Buffer
+	const replacementPassword = "  spaced-password  "
+	if err := run(
+		[]string{
+			"--database", databasePath,
+			"--username", "admin",
+			"--password-stdin",
+		},
+		strings.NewReader(replacementPassword+"\n"),
+		&output,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := store.Open(context.Background(), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	user, err := database.FindUserByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !security.PasswordMatches(
+		replacementPassword,
+		user.PasswordSalt,
+		user.PasswordHash,
+	) {
+		t.Fatal("replacement password whitespace was not preserved")
+	}
+	if security.PasswordMatches(
+		strings.TrimSpace(replacementPassword),
+		user.PasswordSalt,
+		user.PasswordHash,
+	) {
+		t.Fatal("trimmed replacement password unexpectedly matches")
 	}
 }
 
