@@ -20,7 +20,8 @@ function compactShiftSource(item) {
       end: item[3],
       tone: item[4],
       presetId: item[5],
-      endDayOffset: item[6]
+      endDayOffset: item[6],
+      note: item[7]
     };
   }
   return item || {};

@@ -26,13 +26,14 @@ var (
 )
 
 type calendarView struct {
-	ID               string `json:"id"`
-	Title            string `json:"title"`
-	Slug             string `json:"slug"`
-	Plan             any    `json:"plan"`
-	CreatedAt        string `json:"createdAt"`
-	UpdatedAt        string `json:"updatedAt"`
-	SubscriptionPath string `json:"subscriptionPath"`
+	ID                string                          `json:"id"`
+	Title             string                          `json:"title"`
+	Slug              string                          `json:"slug"`
+	Plan              any                             `json:"plan"`
+	CreatedAt         string                          `json:"createdAt"`
+	UpdatedAt         string                          `json:"updatedAt"`
+	SubscriptionPath  string                          `json:"subscriptionPath"`
+	SubscriptionPaths map[calendar.ContentMode]string `json:"subscriptionPaths"`
 }
 
 func (s *Server) handleListCalendars(w http.ResponseWriter, r *http.Request) error {
@@ -202,6 +203,10 @@ func (s *Server) handleMergedSubscription(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return err
 	}
+	content, err := calendar.ParseContentMode(r.URL.Query().Get("content"))
+	if err != nil {
+		return &APIError{Status: http.StatusBadRequest, Code: "invalid_subscription_content"}
+	}
 	selectedIDs, err := normalizeMergedCalendarIDs(
 		r.URL.Query().Get("ids"),
 		http.StatusBadRequest,
@@ -223,19 +228,14 @@ func (s *Server) handleMergedSubscription(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	token := user.ID + "." + s.mergedSubscriptionSignature(user.ID)
-	query := ""
-	if len(selectedIDs) > 0 {
-		query = "?ids=" + url.QueryEscape(strings.Join(selectedIDs, ",")) +
-			"&sig=" + s.mergedSelectionSignature(user.ID, selectedIDs)
-	}
 	count := len(selectedIDs)
 	if count == 0 {
 		count = len(available)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"subscriptionPath": "/api/ics/merged/" + token + query,
+		"subscriptionPath": s.mergedSubscriptionPath(user.ID, selectedIDs, content),
 		"calendarCount":    count,
+		"content":          content,
 	}, nil)
 	return nil
 }
@@ -259,6 +259,17 @@ func (s *Server) handleMemberCalendar(
 	if shareSlug == "" || !security.ConstantTimeEqual(signature, expected) {
 		return &APIError{Status: http.StatusNotFound, Code: "calendar_not_found"}
 	}
+	contentParam := r.URL.Query().Get("content")
+	content, err := calendar.ParseContentMode(contentParam)
+	if err != nil {
+		return &APIError{Status: http.StatusNotFound, Code: "calendar_not_found"}
+	}
+	if contentParam != "" && !security.ConstantTimeEqual(
+		r.URL.Query().Get("sig"),
+		s.memberContentSignature(shareSlug, content),
+	) {
+		return &APIError{Status: http.StatusNotFound, Code: "calendar_not_found"}
+	}
 	value, err := s.store.GetCalendarBySlug(r.Context(), shareSlug)
 	if errors.Is(err, store.ErrNotFound) {
 		return &APIError{Status: http.StatusNotFound, Code: "calendar_not_found"}
@@ -275,16 +286,17 @@ func (s *Server) handleMemberCalendar(
 		}
 	}
 	includeRest := plan.IncludeRest
-	content, err := calendar.BuildCalendar(plan, calendar.BuildOptions{
+	calendarContent, err := calendar.BuildCalendar(plan, calendar.BuildOptions{
 		Now:         s.now(),
 		Months:      plan.DurationMonths,
 		IncludeRest: &includeRest,
 		DefaultTZ:   s.defaultTimezone,
+		Content:     content,
 	})
 	if err != nil {
 		return err
 	}
-	s.writeCalendarFile(w, r, content, plan.Title)
+	s.writeCalendarFile(w, r, calendarContent, plan.Title)
 	return nil
 }
 
@@ -304,6 +316,11 @@ func (s *Server) handleMergedCalendar(
 		!security.ConstantTimeEqual(signature, s.mergedSubscriptionSignature(userID)) {
 		return &APIError{Status: http.StatusNotFound, Code: "merged_calendar_not_found"}
 	}
+	contentParam := r.URL.Query().Get("content")
+	content, err := calendar.ParseContentMode(contentParam)
+	if err != nil {
+		return &APIError{Status: http.StatusNotFound, Code: "merged_calendar_not_found"}
+	}
 
 	selectedIDs, err := normalizeMergedCalendarIDs(
 		r.URL.Query().Get("ids"),
@@ -316,10 +333,15 @@ func (s *Server) handleMergedCalendar(
 		signature := r.URL.Query().Get("sig")
 		if !security.ConstantTimeEqual(
 			signature,
-			s.mergedSelectionSignature(userID, selectedIDs),
+			s.mergedSelectionSignature(userID, selectedIDs, content),
 		) {
 			return &APIError{Status: http.StatusNotFound, Code: "merged_calendar_not_found"}
 		}
+	} else if contentParam != "" && !security.ConstantTimeEqual(
+		r.URL.Query().Get("sig"),
+		s.mergedContentSignature(userID, content),
+	) {
+		return &APIError{Status: http.StatusNotFound, Code: "merged_calendar_not_found"}
 	}
 	status, err := s.store.UserStatus(r.Context(), userID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && status != "approved") {
@@ -349,14 +371,15 @@ func (s *Server) handleMergedCalendar(
 			PlanJSON:  value.PlanJSON,
 		})
 	}
-	content, err := calendar.BuildMergedCalendar(filtered, calendar.BuildOptions{
+	calendarContent, err := calendar.BuildMergedCalendar(filtered, calendar.BuildOptions{
 		Now:       s.now(),
 		DefaultTZ: s.defaultTimezone,
+		Content:   content,
 	})
 	if err != nil {
 		return err
 	}
-	s.writeCalendarFile(w, r, content, "Sloop 合并班表")
+	s.writeCalendarFile(w, r, calendarContent, "Sloop 合并班表")
 	return nil
 }
 
@@ -370,20 +393,49 @@ func (s *Server) serializeCalendar(value store.Calendar) (calendarView, error) {
 		}
 	}
 	signature := s.memberSubscriptionSignature(value.ShareSlug)
+	subscriptionPaths := map[calendar.ContentMode]string{
+		calendar.ContentFull:  s.memberSubscriptionPath(value.ShareSlug, calendar.ContentFull),
+		calendar.ContentShift: s.memberSubscriptionPath(value.ShareSlug, calendar.ContentShift),
+		calendar.ContentNote:  s.memberSubscriptionPath(value.ShareSlug, calendar.ContentNote),
+	}
 	return calendarView{
-		ID:               value.ID,
-		Title:            value.Title,
-		Slug:             value.ShareSlug,
-		Plan:             plan,
-		CreatedAt:        value.CreatedAt,
-		UpdatedAt:        value.UpdatedAt,
-		SubscriptionPath: "/api/ics/" + value.ShareSlug + "." + signature,
+		ID:                value.ID,
+		Title:             value.Title,
+		Slug:              value.ShareSlug,
+		Plan:              plan,
+		CreatedAt:         value.CreatedAt,
+		UpdatedAt:         value.UpdatedAt,
+		SubscriptionPath:  "/api/ics/" + value.ShareSlug + "." + signature,
+		SubscriptionPaths: subscriptionPaths,
 	}, nil
+}
+
+func (s *Server) memberSubscriptionPath(slug string, content calendar.ContentMode) string {
+	path := "/api/ics/" + slug + "." + s.memberSubscriptionSignature(slug)
+	if content == calendar.ContentFull {
+		return path
+	}
+	values := url.Values{}
+	values.Set("content", string(content))
+	values.Set("sig", s.memberContentSignature(slug, content))
+	return path + "?" + values.Encode()
 }
 
 func (s *Server) memberSubscriptionSignature(slug string) string {
 	return security.SignBase64URL(
 		fmt.Sprintf("member-subscription:v%d:%s", subscriptionLinkVersion, slug),
+		s.secret,
+	)
+}
+
+func (s *Server) memberContentSignature(slug string, content calendar.ContentMode) string {
+	return security.SignBase64URL(
+		fmt.Sprintf(
+			"member-subscription-content:v%d:%s:%s",
+			subscriptionLinkVersion,
+			slug,
+			content,
+		),
 		s.secret,
 	)
 }
@@ -395,16 +447,69 @@ func (s *Server) mergedSubscriptionSignature(userID string) string {
 	)
 }
 
-func (s *Server) mergedSelectionSignature(userID string, calendarIDs []string) string {
+func (s *Server) mergedSelectionSignature(
+	userID string,
+	calendarIDs []string,
+	content calendar.ContentMode,
+) string {
+	if content == calendar.ContentFull {
+		return security.SignBase64URL(
+			fmt.Sprintf(
+				"merged-selection:v%d:%s:%s",
+				subscriptionLinkVersion,
+				userID,
+				strings.Join(calendarIDs, ","),
+			),
+			s.secret,
+		)
+	}
 	return security.SignBase64URL(
 		fmt.Sprintf(
-			"merged-selection:v%d:%s:%s",
+			"merged-selection-content:v%d:%s:%s:%s",
 			subscriptionLinkVersion,
 			userID,
 			strings.Join(calendarIDs, ","),
+			content,
 		),
 		s.secret,
 	)
+}
+
+func (s *Server) mergedContentSignature(userID string, content calendar.ContentMode) string {
+	return security.SignBase64URL(
+		fmt.Sprintf(
+			"merged-subscription-content:v%d:%s:%s",
+			subscriptionLinkVersion,
+			userID,
+			content,
+		),
+		s.secret,
+	)
+}
+
+func (s *Server) mergedSubscriptionPath(
+	userID string,
+	calendarIDs []string,
+	content calendar.ContentMode,
+) string {
+	path := "/api/ics/merged/" + userID + "." + s.mergedSubscriptionSignature(userID)
+	values := url.Values{}
+	if len(calendarIDs) > 0 {
+		values.Set("ids", strings.Join(calendarIDs, ","))
+	}
+	if content != calendar.ContentFull {
+		values.Set("content", string(content))
+	}
+	switch {
+	case len(calendarIDs) > 0:
+		values.Set("sig", s.mergedSelectionSignature(userID, calendarIDs, content))
+	case content != calendar.ContentFull:
+		values.Set("sig", s.mergedContentSignature(userID, content))
+	}
+	if len(values) == 0 {
+		return path
+	}
+	return path + "?" + values.Encode()
 }
 
 func normalizeMergedCalendarIDs(value string, errorStatus int) ([]string, error) {

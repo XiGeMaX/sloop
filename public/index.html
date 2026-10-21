@@ -53,13 +53,9 @@
           <span>Sloop</span>
         </a>
         <div class="welcome-top-actions">
-          <span class="welcome-access-badge">
-            <span data-icon="lock" aria-hidden="true"></span>
-            <span data-i18n="welcome.memberAccess">成员访问</span>
-          </span>
           <button class="welcome-language" id="welcomeLanguageButton" type="button">
             <span data-icon="languages" aria-hidden="true"></span>
-            <span id="welcomeLanguageLabel">EN</span>
+            <span id="welcomeLanguageLabel">英文</span>
           </button>
           <button
             class="welcome-language welcome-theme-button"
@@ -120,7 +116,7 @@
             <div class="welcome-calendar-footline">
               <span class="welcome-today-label" data-i18n="common.today">今天</span>
               <span class="welcome-calendar-rule"></span>
-              <span class="welcome-sync-label">iCal · Sync</span>
+              <span class="welcome-sync-label" data-i18n="welcome.sync">日历同步</span>
             </div>
           </div>
         </section>
@@ -259,11 +255,6 @@
           <p class="welcome-auth-status" id="welcomeAuthStatus" aria-live="polite">
             正在确认登录状态…
           </p>
-
-          <p class="welcome-security-note">
-            <span data-icon="lock" aria-hidden="true"></span>
-            <span data-i18n="welcome.memberOnly">仅限已批准的成员访问，游客使用已关闭。</span>
-          </p>
         </section>
       </div>
     </section>
@@ -302,12 +293,12 @@
           id="navAdmin"
           type="button"
           data-view="admin"
-          title="人员管理"
-          data-i18n-title="nav.admin"
+          title="设置"
+          data-i18n-title="nav.settings"
           hidden
         >
-          <span data-icon="users" aria-hidden="true"></span>
-          <span class="nav-label" data-i18n="nav.admin">人员管理</span>
+          <span data-icon="settings" aria-hidden="true"></span>
+          <span class="nav-label" data-i18n="nav.settings">设置</span>
         </button>
         <button
           class="account-button"
@@ -321,10 +312,6 @@
             <strong id="accountName" data-i18n="auth.login">登录</strong>
             <small id="accountRole" data-i18n="role.member">成员</small>
           </span>
-        </button>
-        <button class="language-button" id="languageButton" type="button">
-          <span data-icon="languages" aria-hidden="true"></span>
-          <span id="languageLabel">EN</span>
         </button>
         <button
           class="theme-button"
@@ -343,87 +330,143 @@
         <section class="editor" aria-labelledby="page-title">
           <header class="editor-heading">
             <div>
-              <p class="eyebrow" data-i18n="builder.eyebrow">周期班表 / ICS</p>
+              <p class="eyebrow" data-i18n="builder.eyebrow">周期班表 / 日历订阅</p>
               <h1 id="page-title" data-i18n="builder.title">轮转班次</h1>
             </div>
-            <label class="title-field">
-              <span data-i18n="builder.calendarName">日历名称</span>
-              <input id="calendarTitle" type="text" maxlength="64" autocomplete="off" />
-            </label>
+            <div
+              class="builder-entry-actions"
+              role="group"
+              aria-label="选择新建或编辑周期"
+              data-i18n-aria-label="builder.entryAria"
+            >
+              <button
+                class="builder-entry-button"
+                id="builderStartNew"
+                type="button"
+                aria-controls="builderWorkspace"
+                aria-expanded="false"
+              >
+                <span data-icon="plus" aria-hidden="true"></span>
+                <span data-i18n="saved.new">新建周期</span>
+              </button>
+              <button
+                class="builder-entry-button"
+                id="builderStartEdit"
+                type="button"
+                aria-controls="builderWorkspace"
+                aria-expanded="false"
+              >
+                <span data-icon="edit" aria-hidden="true"></span>
+                <span data-i18n="saved.edit">编辑周期</span>
+              </button>
+            </div>
           </header>
 
-          <section class="builder" aria-labelledby="cycle-heading">
-            <div class="section-heading">
-              <div class="section-heading-title">
-                <p class="section-index">01</p>
-                <h2 id="cycle-heading" data-i18n="builder.cycleHeading">周期组合</h2>
-              </div>
-              <div class="section-heading-actions">
-                <button class="section-settings-trigger" type="button" data-shift-settings>
-                  <span data-icon="settings" aria-hidden="true"></span>
-                  <span data-i18n="builder.shiftSettings">班次设置</span>
-                </button>
+          <div class="builder-workspace" id="builderWorkspace" hidden>
+            <div class="builder-workspace-controls">
+              <div class="builder-cycle-picker">
+                <label class="builder-cycle-select-field">
+                  <span class="builder-cycle-select-label" data-i18n="builder.activeCycle">正在编辑</span>
+                  <span class="builder-cycle-select-shell">
+                    <select id="builderCycleSelect" aria-label="选择要调整的已保存周期" data-i18n-aria-label="builder.cycleSelectAria"></select>
+                    <span class="builder-cycle-select-chevron" data-icon="chevron" aria-hidden="true"></span>
+                  </span>
+                </label>
                 <button
-                  class="page-scroll-lock"
-                  id="pageScrollLock"
+                  class="builder-new-cycle"
+                  id="builderNewCalendarButton"
                   type="button"
-                  aria-label="锁定页面位置"
-                  aria-pressed="false"
-                  data-i18n-aria-label="builder.lockPageScroll"
-                  data-i18n-title="builder.lockPageScroll"
+                  aria-label="创建新周期"
+                  data-i18n-aria-label="saved.new"
+                  title="创建新周期"
+                  data-i18n-title="saved.new"
                 >
-                  <span id="pageScrollLockIcon" data-icon="lockOpen" aria-hidden="true"></span>
+                  <span data-icon="plus" aria-hidden="true"></span>
                 </button>
               </div>
-            </div>
-            <p class="section-meta" id="cycleMeta">0 天循环</p>
-
-            <div class="today-summary">
-              <span class="today-summary-label" data-i18n="builder.today">今天</span>
-              <span class="today-summary-name" id="todayShiftName">白班</span>
-              <span class="today-summary-time" id="todayShiftTime">08:00–20:00</span>
-            </div>
-
-            <div
-              class="preset-row"
-              id="presetRow"
-              aria-label="添加班次"
-              data-i18n-aria-label="builder.addShift"
-            ></div>
-
-            <div class="cycle-list" id="cycleList"></div>
-
-            <div
-              class="mobile-cycle-composer"
-              aria-label="移动端周期组合编辑器"
-              data-i18n-aria-label="builder.mobileComposer"
-            >
-              <div class="mobile-composer-heading">
-                <span class="mobile-composer-copy">
-                  <strong data-i18n="builder.mobileTitle">调整组合</strong>
-                  <span data-i18n="builder.mobileHint">点选班次后在下方调整</span>
-                </span>
-              </div>
-              <div
-                class="mobile-cycle-strip"
-                id="mobileCycleStrip"
-                aria-label="周期班次"
-                data-i18n-aria-label="builder.mobileCycle"
-              ></div>
-              <div class="mobile-shift-panel" id="mobileShiftPanel"></div>
-            </div>
-
-            <div class="builder-footer">
-              <label class="switch-row">
-                <span>
-                  <strong data-i18n="builder.includeRest">休息日写入日历</strong>
-                  <small data-i18n="builder.includeRestHint">以全天透明事件显示</small>
-                </span>
-                <input id="includeRest" type="checkbox" />
-                <span class="switch" aria-hidden="true"></span>
+              <label class="title-field">
+                <span data-i18n="builder.calendarName">日历名称</span>
+                <input id="calendarTitle" type="text" maxlength="64" autocomplete="off" />
               </label>
             </div>
-          </section>
+
+            <section class="builder" aria-labelledby="cycle-heading">
+              <div class="section-heading">
+                <div class="section-heading-title">
+                  <p class="section-index">01</p>
+                  <h2 id="cycle-heading" data-i18n="builder.cycleHeading">周期组合</h2>
+                </div>
+                <div class="section-heading-actions">
+                  <button class="section-settings-trigger" type="button" data-advanced-settings>
+                    <span data-icon="edit" aria-hidden="true"></span>
+                    <span data-i18n="builder.advanced">高级</span>
+                  </button>
+                  <button class="section-settings-trigger" type="button" data-shift-settings>
+                    <span data-icon="settings" aria-hidden="true"></span>
+                    <span data-i18n="builder.shiftSettings">班次设置</span>
+                  </button>
+                  <button
+                    class="page-scroll-lock"
+                    id="pageScrollLock"
+                    type="button"
+                    aria-label="锁定页面位置"
+                    aria-pressed="false"
+                    data-i18n-aria-label="builder.lockPageScroll"
+                    data-i18n-title="builder.lockPageScroll"
+                  >
+                    <span id="pageScrollLockIcon" data-icon="lockOpen" aria-hidden="true"></span>
+                  </button>
+                </div>
+              </div>
+              <p class="section-meta" id="cycleMeta">0 天循环</p>
+
+              <div class="today-summary">
+                <span class="today-summary-label" data-i18n="builder.today">今天</span>
+                <span class="today-summary-name" id="todayShiftName">白班</span>
+                <span class="today-summary-time" id="todayShiftTime">08:00–20:00</span>
+              </div>
+
+              <div
+                class="preset-row"
+                id="presetRow"
+                aria-label="添加班次"
+                data-i18n-aria-label="builder.addShift"
+              ></div>
+
+              <div class="cycle-list" id="cycleList"></div>
+
+              <div
+                class="mobile-cycle-composer"
+                aria-label="移动端周期组合编辑器"
+                data-i18n-aria-label="builder.mobileComposer"
+              >
+                <div class="mobile-composer-heading">
+                  <span class="mobile-composer-copy">
+                    <strong data-i18n="builder.mobileTitle">调整组合</strong>
+                    <span data-i18n="builder.mobileHint">点选班次后在下方调整</span>
+                  </span>
+                </div>
+                <div
+                  class="mobile-cycle-strip"
+                  id="mobileCycleStrip"
+                  aria-label="周期班次"
+                  data-i18n-aria-label="builder.mobileCycle"
+                ></div>
+                <div class="mobile-shift-panel" id="mobileShiftPanel"></div>
+              </div>
+
+              <div class="builder-footer">
+                <label class="switch-row">
+                  <span>
+                    <strong data-i18n="builder.includeRest">休息日写入日历</strong>
+                    <small data-i18n="builder.includeRestHint">以全天透明事件显示</small>
+                  </span>
+                  <input id="includeRest" type="checkbox" />
+                  <span class="switch" aria-hidden="true"></span>
+                </label>
+              </div>
+            </section>
+          </div>
         </section>
 
         <aside class="inspector" aria-labelledby="preview-heading">
@@ -528,6 +571,26 @@
               </span>
             </label>
 
+            <div class="subscription-content-control">
+              <span class="subscription-content-label" data-i18n="export.content">订阅内容</span>
+              <div
+                class="subscription-content-options"
+                role="group"
+                aria-label="选择订阅内容"
+                data-i18n-aria-label="export.contentAria"
+              >
+                <button type="button" data-subscription-content="full" aria-pressed="true" data-i18n="export.contentFull">
+                  班次 + 备注
+                </button>
+                <button type="button" data-subscription-content="shift" aria-pressed="false" data-i18n="export.contentShift">
+                  仅班次
+                </button>
+                <button type="button" data-subscription-content="note" aria-pressed="false" data-i18n="export.contentNote">
+                  仅备注
+                </button>
+              </div>
+            </div>
+
             <div class="link-preview" id="linkPreview">
               <span class="link-icon" data-icon="link" aria-hidden="true"></span>
               <span class="link-text" id="linkText" data-i18n="export.linkPlaceholder"
@@ -622,33 +685,59 @@
       <section class="page-view admin-view" id="adminView" aria-labelledby="adminTitle" hidden>
         <header class="view-heading">
           <div>
-            <p class="eyebrow" data-i18n="admin.eyebrow">管理员</p>
-            <h1 id="adminTitle" data-i18n="admin.title">人员管理</h1>
+            <p class="eyebrow" data-i18n="settings.eyebrow">账户与实例</p>
+            <h1 id="adminTitle" data-i18n="settings.title">设置</h1>
           </div>
-          <span class="admin-count" id="adminCount">0 位成员</span>
+          <span class="admin-count" id="adminCount" data-i18n="settings.personal">个人设置</span>
         </header>
 
         <div
           class="admin-tabs"
+          id="adminTabs"
           role="tablist"
           aria-label="管理项目"
           data-i18n-aria-label="admin.tabs"
         >
-          <button class="is-active" type="button" data-admin-tab="people" role="tab" aria-selected="true">
-            <span data-icon="users" aria-hidden="true"></span>
-            <span data-i18n="admin.people">人员</span>
+          <button class="is-active" type="button" data-admin-tab="general" role="tab" aria-selected="true">
+            <span data-icon="settings" aria-hidden="true"></span>
+            <span data-i18n="settings.general">通用</span>
           </button>
-          <button type="button" data-admin-tab="invites" role="tab" aria-selected="false">
+          <button type="button" data-admin-tab="members" role="tab" aria-selected="false" data-admin-only>
+            <span data-icon="users" aria-hidden="true"></span>
+            <span data-i18n="admin.members">成员</span>
+          </button>
+          <button type="button" data-admin-tab="invites" role="tab" aria-selected="false" data-admin-only>
             <span data-icon="ticket" aria-hidden="true"></span>
             <span data-i18n="admin.invites">邀请码</span>
           </button>
-          <button type="button" data-admin-tab="backup" role="tab" aria-selected="false">
+          <button type="button" data-admin-tab="backup" role="tab" aria-selected="false" data-admin-only>
             <span data-icon="save" aria-hidden="true"></span>
             <span data-i18n="admin.backup">数据备份</span>
           </button>
         </div>
 
-        <section class="admin-panel" id="peoplePanel">
+        <section class="admin-panel" id="generalPanel">
+          <div class="admin-panel-heading">
+            <h2 data-i18n="settings.languageTitle">界面语言</h2>
+            <span data-i18n="settings.languageHint">保存到你的账户</span>
+          </div>
+          <div class="settings-list">
+            <label class="settings-row" for="settingsLanguage">
+              <span class="settings-row-copy">
+                <strong data-i18n="settings.languageLabel">语言</strong>
+                <small data-i18n="settings.languageDescription">默认跟随浏览器，也可以固定为中文或英文。</small>
+              </span>
+              <select id="settingsLanguage">
+                <option value="" data-i18n="settings.languageBrowser">跟随浏览器</option>
+                <option value="zh-CN">中文</option>
+                <option value="en" data-i18n="settings.languageEnglish">英文</option>
+              </select>
+            </label>
+          </div>
+          <p class="form-status" id="settingsStatus" aria-live="polite"></p>
+        </section>
+
+        <section class="admin-panel" id="membersPanel" hidden>
           <div class="admin-panel-heading">
             <h2 data-i18n="admin.membersAndApprovals">成员与审批</h2>
             <span id="pendingCount">0 个待审批</span>
@@ -1029,6 +1118,13 @@
       <p class="eyebrow" data-i18n="saved.shareEyebrow">分享周期</p>
       <h2 id="cycleShareTitle" data-i18n="saved.shareTitle">分享周期</h2>
       <p class="share-intro" id="cycleShareDescription"></p>
+      <label class="share-note-toggle">
+        <input id="cycleShareIncludeNotes" type="checkbox" checked />
+        <span>
+          <strong data-i18n="saved.shareNotes">包含班次备注</strong>
+          <small data-i18n="saved.shareNotesHint">关闭后，接收者只会得到班次时间与名称。</small>
+        </span>
+      </label>
       <label class="share-field">
         <span data-i18n="saved.shareLink">分享链接</span>
         <textarea id="cycleShareLink" rows="4" readonly spellcheck="false"></textarea>
@@ -1043,6 +1139,32 @@
           <span data-i18n="saved.copyShare">复制链接</span>
         </button>
       </div>
+    </dialog>
+
+    <dialog class="shift-settings-dialog advanced-settings-dialog" id="advancedSettingsDialog" aria-labelledby="advancedSettingsTitle">
+      <div class="dialog-handle" aria-hidden="true"></div>
+      <div class="shift-settings-topbar">
+        <div class="shift-settings-heading">
+          <p class="eyebrow" data-i18n="advanced.eyebrow">高级设置</p>
+          <h2 id="advancedSettingsTitle" data-i18n="advanced.title">班次备注</h2>
+        </div>
+        <button
+          class="dialog-close"
+          id="advancedSettingsClose"
+          type="button"
+          aria-label="关闭"
+          data-i18n-aria-label="common.close"
+        >
+          <span data-icon="close" aria-hidden="true"></span>
+        </button>
+      </div>
+      <p class="share-intro" data-i18n="advanced.description">
+        备注只属于当前周期的具体日期，可随订阅链接和分享链接一起提供。
+      </p>
+      <div class="advanced-note-list" id="advancedNoteList"></div>
+      <button class="view-primary shift-settings-done" id="advancedSettingsDone" type="button" data-i18n="advanced.done">
+        完成
+      </button>
     </dialog>
 
     <dialog class="share-dialog" id="cycleImportDialog" aria-labelledby="cycleImportTitle">

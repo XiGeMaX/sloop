@@ -1,4 +1,5 @@
 import {
+  applyAccountLanguage,
   applyStaticTranslations,
   getLanguage,
   getLocale,
@@ -39,6 +40,7 @@ const MAX_MEMBER_MONTHS = 24;
 const DEFAULT_BACKWARD_MONTHS = 3;
 const MAX_BACKWARD_MONTHS = 24;
 const MAX_SHIFT_PRESETS = 12;
+const MAX_SHIFT_NOTE_LENGTH = 500;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
 const TONE_ORDER = [
   "sky",
@@ -155,6 +157,9 @@ const elements = {
   welcomeThemeButton: document.querySelector("#welcomeThemeButton"),
   welcomeThemeIcon: document.querySelector("#welcomeThemeIcon"),
   builderView: document.querySelector("#builderView"),
+  builderStartNew: document.querySelector("#builderStartNew"),
+  builderStartEdit: document.querySelector("#builderStartEdit"),
+  builderWorkspace: document.querySelector("#builderWorkspace"),
   calendarsView: document.querySelector("#calendarsView"),
   adminView: document.querySelector("#adminView"),
   title: document.querySelector("#calendarTitle"),
@@ -199,10 +204,10 @@ const elements = {
   accountAvatar: document.querySelector("#accountAvatar"),
   accountName: document.querySelector("#accountName"),
   accountRole: document.querySelector("#accountRole"),
-  languageButton: document.querySelector("#languageButton"),
-  languageLabel: document.querySelector("#languageLabel"),
   themeButton: document.querySelector("#themeButton"),
   themeIcon: document.querySelector("#themeIcon"),
+  builderCycleSelect: document.querySelector("#builderCycleSelect"),
+  builderNewCalendarButton: document.querySelector("#builderNewCalendarButton"),
   calendarList: document.querySelector("#calendarList"),
   newCalendarButton: document.querySelector("#newCalendarButton"),
   importCycleButton: document.querySelector("#importCycleButton"),
@@ -216,6 +221,7 @@ const elements = {
   cycleShareDialog: document.querySelector("#cycleShareDialog"),
   cycleShareClose: document.querySelector("#cycleShareClose"),
   cycleShareDescription: document.querySelector("#cycleShareDescription"),
+  cycleShareIncludeNotes: document.querySelector("#cycleShareIncludeNotes"),
   cycleShareLink: document.querySelector("#cycleShareLink"),
   copyCycleShare: document.querySelector("#copyCycleShare"),
   systemShareCycle: document.querySelector("#systemShareCycle"),
@@ -232,11 +238,15 @@ const elements = {
   confirmAccept: document.querySelector("#confirmAccept"),
   confirmAcceptLabel: document.querySelector("#confirmAcceptLabel"),
   adminCount: document.querySelector("#adminCount"),
+  adminTabs: document.querySelector("#adminTabs"),
   pendingCount: document.querySelector("#pendingCount"),
   peopleList: document.querySelector("#peopleList"),
-  peoplePanel: document.querySelector("#peoplePanel"),
+  generalPanel: document.querySelector("#generalPanel"),
+  membersPanel: document.querySelector("#membersPanel"),
   invitesPanel: document.querySelector("#invitesPanel"),
   backupPanel: document.querySelector("#backupPanel"),
+  settingsLanguage: document.querySelector("#settingsLanguage"),
+  settingsStatus: document.querySelector("#settingsStatus"),
   inviteForm: document.querySelector("#inviteForm"),
   inviteCode: document.querySelector("#inviteCode"),
   inviteMaxUses: document.querySelector("#inviteMaxUses"),
@@ -284,6 +294,10 @@ const elements = {
   shiftSettingsDialog: document.querySelector("#shiftSettingsDialog"),
   shiftSettingsClose: document.querySelector("#shiftSettingsClose"),
   shiftSettingsDone: document.querySelector("#shiftSettingsDone"),
+  advancedSettingsDialog: document.querySelector("#advancedSettingsDialog"),
+  advancedSettingsClose: document.querySelector("#advancedSettingsClose"),
+  advancedSettingsDone: document.querySelector("#advancedSettingsDone"),
+  advancedNoteList: document.querySelector("#advancedNoteList"),
   shiftPresetList: document.querySelector("#shiftPresetList"),
   addShiftPreset: document.querySelector("#addShiftPreset"),
   addRestPreset: document.querySelector("#addRestPreset"),
@@ -305,7 +319,10 @@ let shiftLibrarySyncTimer = 0;
 let shiftLibraryRevision = 0;
 let currentView = "builder";
 let activeCalendarId = null;
+let builderEntryMode = null;
 let currentLinks = null;
+let currentSubscriptionPaths = null;
+let subscriptionContent = "full";
 let savedPlanTimer = 0;
 let workspaceRevision = 0;
 let dragState = null;
@@ -319,11 +336,13 @@ let pendingSharedCycleInput = null;
 let confirmationResolver = null;
 let mergedSubscription = null;
 let selectedMergedSubscription = null;
+let mergedSubscriptionRequestId = 0;
 let selectedCalendarIds = new Set();
 let selectedMergedRequestId = 0;
 let adminUsers = [];
 let invites = [];
 let adminPasswordUser = null;
+let settingsTab = "general";
 let timezoneConfirmedForLink = false;
 let timezoneConfirmationResolver = null;
 
@@ -526,7 +545,8 @@ function makeShift(preset = shiftPresets[0] ?? getDefaultShiftPresets()[0]) {
     start: preset.start,
     end: preset.end,
     endDayOffset: preset.endDayOffset,
-    tone: preset.tone
+    tone: preset.tone,
+    note: ""
   };
 }
 
@@ -598,7 +618,8 @@ function normalizeClientPlan(raw) {
           end: source[3],
           tone: source[4],
           presetId: source[5],
-          endDayOffset: source[6]
+          endDayOffset: source[6],
+          note: source[7]
         }
       : source;
     const hasPresetId = isCompact
@@ -624,7 +645,8 @@ function normalizeClientPlan(raw) {
         kind
       ),
       tone: TONE_ORDER.includes(toneValue) ? toneValue : "sky",
-      presetId: hasPresetId ? cleanText(item?.p ?? item?.presetId, 80) || null : undefined
+      presetId: hasPresetId ? cleanText(item?.p ?? item?.presetId, 80) || null : undefined,
+      note: cleanText(item?.note, MAX_SHIFT_NOTE_LENGTH)
     };
   });
 
@@ -680,7 +702,8 @@ function compactPlan(source = state) {
       item.end,
       item.tone,
       item.presetId || "",
-      item.endDayOffset
+      item.endDayOffset,
+      item.note || ""
     ])
   };
 }
@@ -1116,6 +1139,42 @@ function syncShiftTimezoneButton() {
       offset
     })
   );
+}
+
+function renderAdvancedSettings() {
+  elements.advancedNoteList.innerHTML = state.cycle
+    .map(
+      (shift, index) => `
+        <label class="advanced-note-row tone-${shift.tone}">
+          <span class="advanced-note-heading">
+            <span class="advanced-note-day">${String(index + 1).padStart(2, "0")}</span>
+            <span class="advanced-note-copy">
+              <strong>${escapeHTML(displayShiftName(shift))}</strong>
+              <small>${escapeHTML(shiftTimeLabel(shift, restStartForIndex(index)))}</small>
+            </span>
+            <span class="advanced-note-count" data-note-count="${shift.id}">${String(shift.note?.length || 0)} / ${MAX_SHIFT_NOTE_LENGTH}</span>
+          </span>
+          <textarea
+            rows="3"
+            maxlength="${MAX_SHIFT_NOTE_LENGTH}"
+            data-shift-note="${shift.id}"
+            aria-label="${escapeHTML(t("advanced.noteAria", { index: index + 1 }))}"
+          >${escapeHTML(shift.note || "")}</textarea>
+        </label>
+      `
+    )
+    .join("");
+}
+
+function openAdvancedSettings() {
+  renderAdvancedSettings();
+  if (!elements.advancedSettingsDialog.open) {
+    elements.advancedSettingsDialog.showModal();
+  }
+}
+
+function closeAdvancedSettings() {
+  if (elements.advancedSettingsDialog.open) elements.advancedSettingsDialog.close();
 }
 
 function openShiftSettings() {
@@ -2107,11 +2166,8 @@ function toggleTheme() {
 
 function refreshLanguageButton() {
   const label = t("language.label");
-  elements.languageLabel.textContent = label;
   elements.welcomeLanguageLabel.textContent = label;
-  elements.languageButton.setAttribute("aria-label", t("language.switch"));
   elements.welcomeLanguageButton.setAttribute("aria-label", t("language.switch"));
-  elements.languageButton.title = t("language.switch");
   elements.welcomeLanguageButton.title = t("language.switch");
   syncThemeControls();
 }
@@ -2121,10 +2177,13 @@ function refreshLocalizedUI() {
   syncPageScrollLock();
   renderPresets();
   renderShiftSettings();
+  renderAdvancedSettings();
   renderCycle();
   applyUserUI();
   renderCalendarList();
   renderMergedSubscription();
+  renderSubscriptionContentControl();
+  syncSettingsUI();
   if (currentUser?.role === "admin") {
     renderPeople();
     renderInvites();
@@ -2249,7 +2308,7 @@ function applyUserUI() {
   document.body.classList.toggle("is-authenticated", loggedIn);
   document.body.classList.toggle("is-authenticating", !loggedIn && !authGateReady);
   elements.navCalendars.hidden = !loggedIn;
-  elements.navAdmin.hidden = currentUser?.role !== "admin";
+  elements.navAdmin.hidden = !loggedIn;
   elements.accountName.textContent = currentUser?.nickname || t("auth.login");
   elements.accountRole.textContent = currentUser
     ? currentUser.role === "admin"
@@ -2434,14 +2493,19 @@ async function establishAuthenticatedSession(user) {
   window.clearTimeout(shiftLibrarySyncTimer);
   closeShiftSettings();
   currentUser = user;
+  await applyAccountLanguage(user.locale);
   activeShiftPresetStorageKey = userShiftPresetsStorageKey(user);
   shiftPresets = cloneDefaultPresets();
   state = createDefaultState();
   calendars = [];
   activeCalendarId = null;
+  builderEntryMode = null;
   currentLinks = null;
+  currentSubscriptionPaths = null;
+  subscriptionContent = "full";
   mergedSubscription = null;
   selectedMergedSubscription = null;
+  mergedSubscriptionRequestId += 1;
   selectedCalendarIds.clear();
   selectedMergedRequestId += 1;
 
@@ -2481,6 +2545,7 @@ async function establishAuthenticatedSession(user) {
   renderPreview();
   renderCalendarList();
   renderMergedSubscription();
+  setBuilderEntryMode(null);
   applyUserUI();
   if (!activeCalendarId) invalidateLinks();
   return true;
@@ -2530,7 +2595,8 @@ async function handleRegister(event) {
         username: form.get("username"),
         nickname: form.get("nickname"),
         password: form.get("password"),
-        inviteCode: form.get("inviteCode")
+        inviteCode: form.get("inviteCode"),
+        locale: ""
       })
     });
 
@@ -2622,12 +2688,17 @@ function clearAuthenticatedState() {
   calendars = [];
   adminUsers = [];
   invites = [];
+  settingsTab = "general";
   mergedSubscription = null;
   selectedMergedSubscription = null;
   selectedCalendarIds.clear();
   selectedMergedRequestId += 1;
   activeCalendarId = null;
+  builderEntryMode = null;
   currentLinks = null;
+  currentSubscriptionPaths = null;
+  subscriptionContent = "full";
+  mergedSubscriptionRequestId += 1;
   activeShiftPresetStorageKey = null;
   shiftPresets = cloneDefaultPresets();
   state = createDefaultState();
@@ -2639,6 +2710,7 @@ function clearAuthenticatedState() {
   renderPreview();
   renderCalendarList();
   renderMergedSubscription();
+  setBuilderEntryMode(null);
   applyUserUI();
 }
 
@@ -2665,14 +2737,61 @@ function absoluteUrl(path) {
   return new URL(path, window.location.origin).href;
 }
 
+function normalizeSubscriptionContent(value) {
+  return ["full", "shift", "note"].includes(value) ? value : "full";
+}
+
+function calendarSubscriptionPath(calendar, content = subscriptionContent) {
+  const mode = normalizeSubscriptionContent(content);
+  return (
+    calendar?.subscriptionPaths?.[mode] ||
+    (mode === "full" ? calendar?.subscriptionPath : "") ||
+    ""
+  );
+}
+
 function buildLinks(path, months) {
   const ics = absoluteUrl(path);
   return {
     ics,
     download: `${ics}${ics.includes("?") ? "&" : "?"}download=1`,
     webcal: ics.replace(/^https?:/, "webcal:"),
-    months
+    months,
+    content: subscriptionContent
   };
+}
+
+function renderSubscriptionContentControl() {
+  for (const button of document.querySelectorAll("[data-subscription-content]")) {
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.subscriptionContent === subscriptionContent)
+    );
+  }
+}
+
+async function setSubscriptionContent(value) {
+  const next = normalizeSubscriptionContent(value);
+  if (next === subscriptionContent) return;
+  subscriptionContent = next;
+  currentLinks = null;
+  const calendar =
+    calendars.find((item) => item.id === activeCalendarId) ||
+    (currentSubscriptionPaths ? { subscriptionPaths: currentSubscriptionPaths } : null);
+  const path = calendarSubscriptionPath(calendar);
+  if (path) {
+    currentLinks = buildLinks(path, totalCoverageMonths());
+    elements.linkText.textContent = `${window.location.host}${path}`;
+    elements.copyLinkIcon.disabled = false;
+  } else {
+    elements.linkText.textContent = t("export.memberLinkPlaceholder");
+    elements.copyLinkIcon.disabled = true;
+  }
+  renderSubscriptionContentControl();
+  await Promise.all([
+    refreshMergedSubscription({ quiet: true }),
+    refreshSelectedMergedSubscription({ quiet: true })
+  ]);
 }
 
 async function persistCalendar() {
@@ -2693,8 +2812,11 @@ async function persistCalendar() {
 
   activeCalendarId = data.calendar.id;
   state.calendarId = activeCalendarId;
-  currentLinks = buildLinks(data.calendar.subscriptionPath, totalCoverageMonths());
-  elements.linkText.textContent = `${window.location.host}${data.calendar.subscriptionPath}`;
+  if (builderEntryMode === "new") setBuilderEntryMode("edit");
+  currentSubscriptionPaths = data.calendar.subscriptionPaths || null;
+  const subscriptionPath = calendarSubscriptionPath(data.calendar);
+  currentLinks = buildLinks(subscriptionPath, totalCoverageMonths());
+  elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   updateActionLabels();
   scheduleSave();
@@ -2721,13 +2843,16 @@ function applyCalendarContextFromList(calendarList) {
     activeCalendarId = null;
     if (state.calendarId && Array.isArray(calendarList)) state.calendarId = null;
     currentLinks = null;
+    currentSubscriptionPaths = null;
     renderCalendarList();
     return false;
   }
 
   activeCalendarId = calendar.id;
-  currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
-  elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
+  currentSubscriptionPaths = calendar.subscriptionPaths || null;
+  const subscriptionPath = calendarSubscriptionPath(calendar);
+  currentLinks = buildLinks(subscriptionPath, totalCoverageMonths());
+  elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   renderCalendarList();
   return true;
@@ -2855,16 +2980,32 @@ function takeSharedCycleInputFromLocation() {
   return input;
 }
 
-async function buildCycleShareLink(calendar) {
-  const sharePackage = buildCycleSharePackage(calendar.plan, shiftPresets);
+function sharePlanWithNotes(plan, includeNotes) {
+  const clone = JSON.parse(JSON.stringify(plan));
+  const cycle = clone?.c ?? clone?.cycle;
+  if (!Array.isArray(cycle)) return clone;
+  for (const shift of cycle) {
+    if (Array.isArray(shift)) {
+      if (shift.length > 7) shift[7] = includeNotes ? String(shift[7] ?? "") : "";
+    } else if (shift && typeof shift === "object" && includeNotes === false) {
+      delete shift.note;
+    }
+  }
+  return clone;
+}
+
+async function buildCycleShareLink(calendar, includeNotes = true) {
+  const plan = sharePlanWithNotes(calendar.plan, includeNotes);
+  const sharePackage = buildCycleSharePackage(plan, shiftPresets);
   const token = await encodeCycleSharePackage(sharePackage);
   return `${window.location.origin}${window.location.pathname}#share=${token}`;
 }
 
 async function openCycleShareDialog(calendar) {
   try {
-    const link = await buildCycleShareLink(calendar);
     activeShareCalendar = calendar;
+    elements.cycleShareIncludeNotes.checked = true;
+    const link = await buildCycleShareLink(calendar, true);
     elements.cycleShareDescription.textContent = t("saved.shareDescription", {
       name: localizeBuiltInName(calendar.title)
     });
@@ -2879,6 +3020,21 @@ async function openCycleShareDialog(calendar) {
 function closeCycleShareDialog() {
   if (elements.cycleShareDialog.open) elements.cycleShareDialog.close();
   activeShareCalendar = null;
+}
+
+async function refreshCycleShareLink() {
+  if (!activeShareCalendar) return;
+  elements.cycleShareIncludeNotes.disabled = true;
+  try {
+    elements.cycleShareLink.value = await buildCycleShareLink(
+      activeShareCalendar,
+      elements.cycleShareIncludeNotes.checked
+    );
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  } finally {
+    elements.cycleShareIncludeNotes.disabled = false;
+  }
 }
 
 async function copyCycleShareLink() {
@@ -3049,16 +3205,27 @@ function renderMergedSubscription() {
 }
 
 async function refreshMergedSubscription(options = {}) {
+  const requestId = ++mergedSubscriptionRequestId;
   if (!currentUser || !calendars.length) {
     mergedSubscription = null;
     renderMergedSubscription();
     return;
   }
 
+  const content = subscriptionContent;
   try {
-    mergedSubscription = await api("/api/merged-subscription");
+    const data = await api(
+      `/api/merged-subscription?content=${encodeURIComponent(content)}`
+    );
+    if (requestId !== mergedSubscriptionRequestId || content !== subscriptionContent) {
+      return;
+    }
+    mergedSubscription = data;
     renderMergedSubscription();
   } catch (error) {
+    if (requestId !== mergedSubscriptionRequestId || content !== subscriptionContent) {
+      return;
+    }
     mergedSubscription = null;
     renderMergedSubscription();
     if (!options.quiet) showToast(errorMessage(error), "error");
@@ -3078,7 +3245,7 @@ async function refreshSelectedMergedSubscription(options = {}) {
   renderMergedSubscription();
   try {
     const data = await api(
-      `/api/merged-subscription?ids=${encodeURIComponent(ids.join(","))}`
+      `/api/merged-subscription?ids=${encodeURIComponent(ids.join(","))}&content=${encodeURIComponent(subscriptionContent)}`
     );
     if (
       requestId !== selectedMergedRequestId ||
@@ -3111,7 +3278,55 @@ function clearMergedSelection() {
   renderMergedSubscription();
 }
 
+function renderBuilderCycleSelect() {
+  const options = [
+    `<option value="">${escapeHTML(t("builder.newCycleOption"))}</option>`,
+    ...calendars.map(
+      (calendar) =>
+        `<option value="${escapeHTML(calendar.id)}">${escapeHTML(localizeBuiltInName(calendar.title))}</option>`
+    )
+  ];
+  elements.builderCycleSelect.innerHTML = options.join("");
+  elements.builderCycleSelect.value = calendars.some(
+    (calendar) => calendar.id === activeCalendarId
+  )
+    ? activeCalendarId
+    : "";
+  syncBuilderEntryAvailability();
+}
+
+function syncBuilderEntryAvailability() {
+  const canEdit = calendars.length > 0;
+  elements.builderStartEdit.disabled = !canEdit;
+  elements.builderStartEdit.title = canEdit ? t("saved.edit") : t("builder.editUnavailable");
+  if (!canEdit && builderEntryMode === "edit") setBuilderEntryMode(null);
+}
+
+function setBuilderEntryMode(mode) {
+  const nextMode = mode === "new" || mode === "edit" ? mode : null;
+  builderEntryMode = nextMode;
+  const expanded = Boolean(nextMode);
+  elements.builderWorkspace.hidden = !expanded;
+  for (const [buttonMode, button] of [
+    ["new", elements.builderStartNew],
+    ["edit", elements.builderStartEdit]
+  ]) {
+    const active = nextMode === buttonMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-expanded", String(active));
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function openSavedCycleForEditing() {
+  if (!calendars.length) return;
+  const calendar =
+    calendars.find((item) => item.id === activeCalendarId) ?? calendars[0];
+  loadCalendarIntoBuilder(calendar);
+}
+
 function renderCalendarList() {
+  renderBuilderCycleSelect();
   if (!calendars.length) {
     elements.calendarList.innerHTML = `
       <div class="empty-state">
@@ -3213,15 +3428,20 @@ function loadCalendarIntoBuilder(calendar) {
   timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = calendar.id;
-  currentLinks = buildLinks(calendar.subscriptionPath, totalCoverageMonths());
+  currentSubscriptionPaths = calendar.subscriptionPaths || null;
+  const subscriptionPath = calendarSubscriptionPath(calendar);
+  currentLinks = buildLinks(subscriptionPath, totalCoverageMonths());
   renderPresets();
   syncFieldValues();
   renderCycle();
   renderPreview();
-  elements.linkText.textContent = `${window.location.host}${calendar.subscriptionPath}`;
+  renderSubscriptionContentControl();
+  renderBuilderCycleSelect();
+  elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   scheduleSave();
   showView("builder");
+  setBuilderEntryMode("edit");
 }
 
 function startNewCalendar() {
@@ -3230,20 +3450,56 @@ function startNewCalendar() {
   selectedShiftId = state.todayId;
   activeCalendarId = null;
   currentLinks = null;
+  currentSubscriptionPaths = null;
   syncFieldValues();
   renderCycle();
   renderPreview();
+  renderSubscriptionContentControl();
+  renderBuilderCycleSelect();
   scheduleSave();
   showView("builder");
+  setBuilderEntryMode("new");
   document.querySelector(".editor-heading")?.scrollIntoView({
     block: "start",
     behavior: reduceMotionQuery.matches ? "auto" : "smooth"
   });
 }
 
+async function switchBuilderCycle(calendarId) {
+  if (!calendarId) {
+    await beginNewCalendar();
+    return;
+  }
+  if (calendarId === activeCalendarId) return;
+  const calendar = calendars.find((item) => item.id === calendarId);
+  if (!calendar) {
+    renderBuilderCycleSelect();
+    return;
+  }
+  try {
+    if (activeCalendarId) await persistCalendar();
+    loadCalendarIntoBuilder(calendar);
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+    renderBuilderCycleSelect();
+  }
+}
+
+async function beginNewCalendar() {
+  try {
+    if (activeCalendarId) await persistCalendar();
+    startNewCalendar();
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+    renderBuilderCycleSelect();
+  }
+}
+
 async function copyCalendarLink(calendar) {
   try {
-    await copyText(absoluteUrl(calendar.subscriptionPath));
+    const path = calendarSubscriptionPath(calendar);
+    if (!path) throw new Error("calendar_subscription_unavailable");
+    await copyText(absoluteUrl(path));
     showToast(t("toast.subscriptionCopied"));
   } catch {
     showToast(t("toast.copyFailed"), "error");
@@ -3280,7 +3536,9 @@ async function deleteSavedCalendar(calendar) {
       activeCalendarId = null;
       state.calendarId = null;
       currentLinks = null;
-      scheduleSave();
+      currentSubscriptionPaths = null;
+      setBuilderEntryMode("new");
+      invalidateLinks();
     }
     await refreshCalendars({ quiet: true });
     showToast(t("toast.calendarDeleted"));
@@ -3291,7 +3549,9 @@ async function deleteSavedCalendar(calendar) {
 
 function renderPeople() {
   const pending = adminUsers.filter((user) => user.status === "pending").length;
-  elements.adminCount.textContent = plural("units.members", adminUsers.length);
+  if (settingsTab === "members") {
+    elements.adminCount.textContent = plural("units.members", adminUsers.length);
+  }
   elements.pendingCount.textContent = plural("units.pending", pending);
 
   if (!adminUsers.length) {
@@ -3321,6 +3581,7 @@ function renderPeople() {
         } else {
           actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">${t("admin.restore")}</button>`);
         }
+        actions.push(`<button class="is-danger" type="button" data-admin-action="delete" data-id="${user.id}">${t("admin.deleteUser")}</button>`);
       }
 
       return `
@@ -3352,6 +3613,9 @@ function inviteState(invite) {
 
 function renderInvites() {
   elements.inviteCount.textContent = plural("units.invites", invites.length);
+  if (settingsTab === "invites") {
+    elements.adminCount.textContent = plural("units.invites", invites.length);
+  }
   if (!invites.length) {
     elements.inviteList.innerHTML = `<div class="empty-state"><strong>${t("admin.noInvites")}</strong></div>`;
     return;
@@ -3414,6 +3678,64 @@ async function updateAdminUser(userId, payload) {
     showToast(t("auth.memberStatusUpdated"));
   } catch (error) {
     showToast(errorMessage(error), "error");
+  }
+}
+
+async function deleteAdminUser(user) {
+  const confirmed = await requestConfirmation({
+    message: t("confirm.deleteUser", {
+      name: user.nickname,
+      username: user.username
+    }),
+    confirmLabel: t("confirm.deleteAction"),
+    danger: true
+  });
+  if (!confirmed) return;
+  try {
+    await api(`/api/admin/users/${user.id}`, { method: "DELETE" });
+    await loadAdminData();
+    showToast(t("toast.memberDeleted"));
+  } catch (error) {
+    showToast(errorMessage(error), "error");
+  }
+}
+
+function syncSettingsUI() {
+  const isAdmin = currentUser?.role === "admin";
+  elements.settingsLanguage.value = currentUser?.locale || "";
+  elements.adminTabs.classList.toggle("is-personal", !isAdmin);
+  for (const tab of document.querySelectorAll("[data-admin-only]")) {
+    tab.hidden = !isAdmin;
+  }
+  if (!isAdmin && settingsTab !== "general") {
+    showAdminTab("general");
+  }
+}
+
+async function updateAccountLanguage(locale) {
+  if (!currentUser) return;
+  const previousLocale = currentUser.locale || "";
+  elements.settingsLanguage.disabled = true;
+  setFormStatus(elements.settingsStatus, t("settings.saving"));
+  try {
+    const data = await api("/api/auth/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ locale })
+    });
+    currentUser = data.user;
+    await applyAccountLanguage(currentUser.locale);
+    timezoneConfirmedForLink = getLanguage() !== "en";
+    localizeBuiltInData();
+    refreshLocalizedUI();
+    syncFieldValues();
+    renderAdvancedSettings();
+    scheduleSave();
+    setFormStatus(elements.settingsStatus, t("settings.saved"));
+  } catch (error) {
+    elements.settingsLanguage.value = previousLocale;
+    setFormStatus(elements.settingsStatus, errorMessage(error), true);
+  } finally {
+    elements.settingsLanguage.disabled = false;
   }
 }
 
@@ -3571,14 +3893,29 @@ async function submitInvite(event) {
 }
 
 function showAdminTab(tab) {
+  const isAdmin = currentUser?.role === "admin";
+  const allowed =
+    tab === "general" ||
+    (isAdmin && ["members", "invites", "backup"].includes(tab));
+  settingsTab = allowed ? tab : "general";
   for (const button of document.querySelectorAll("[data-admin-tab]")) {
-    const active = button.dataset.adminTab === tab;
+    const active = button.dataset.adminTab === settingsTab;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", String(active));
   }
-  elements.peoplePanel.hidden = tab !== "people";
-  elements.invitesPanel.hidden = tab !== "invites";
-  elements.backupPanel.hidden = tab !== "backup";
+  elements.generalPanel.hidden = settingsTab !== "general";
+  elements.membersPanel.hidden = settingsTab !== "members";
+  elements.invitesPanel.hidden = settingsTab !== "invites";
+  elements.backupPanel.hidden = settingsTab !== "backup";
+  if (settingsTab === "general") {
+    elements.adminCount.textContent = t("settings.personal");
+  } else if (settingsTab === "members") {
+    elements.adminCount.textContent = plural("units.members", adminUsers.length);
+  } else if (settingsTab === "invites") {
+    elements.adminCount.textContent = plural("units.invites", invites.length);
+  } else if (settingsTab === "backup") {
+    elements.adminCount.textContent = t("backup.hint");
+  }
 }
 
 function showView(view) {
@@ -3591,7 +3928,11 @@ function showView(view) {
   }
 
   if (view === "calendars") refreshCalendars();
-  if (view === "admin") loadAdminData();
+  if (view === "admin") {
+    syncSettingsUI();
+    showAdminTab(settingsTab);
+    loadAdminData();
+  }
   window.scrollTo({ top: 0, behavior: "auto" });
 }
 
@@ -3724,6 +4065,9 @@ function bindEvents() {
   for (const button of document.querySelectorAll("[data-shift-settings]")) {
     button.addEventListener("click", openShiftSettings);
   }
+  for (const button of document.querySelectorAll("[data-advanced-settings]")) {
+    button.addEventListener("click", openAdvancedSettings);
+  }
 
   elements.cycleList.addEventListener("click", (event) => {
     const action = event.target.closest("[data-action]");
@@ -3811,13 +4155,35 @@ function bindEvents() {
   elements.downloadIcs.addEventListener("click", downloadCalendar);
   elements.openCalendar.addEventListener("click", openCalendarApp);
   elements.saveCalendar.addEventListener("click", saveCurrentCalendar);
+  elements.builderCycleSelect.addEventListener("change", () => {
+    switchBuilderCycle(elements.builderCycleSelect.value);
+  });
+  elements.builderStartNew.addEventListener("click", () => {
+    if (builderEntryMode === "new") {
+      setBuilderEntryMode(null);
+      return;
+    }
+    beginNewCalendar();
+  });
+  elements.builderStartEdit.addEventListener("click", () => {
+    if (builderEntryMode === "edit") {
+      setBuilderEntryMode(null);
+      return;
+    }
+    openSavedCycleForEditing();
+  });
+  elements.builderNewCalendarButton.addEventListener("click", beginNewCalendar);
+  for (const button of document.querySelectorAll("[data-subscription-content]")) {
+    button.addEventListener("click", () => {
+      setSubscriptionContent(button.dataset.subscriptionContent);
+    });
+  }
 
   elements.authButton.addEventListener("click", () => {
     if (currentUser) openAccountDialog();
     else openAuthDialog("login");
   });
   elements.pageScrollLock.addEventListener("click", togglePageScrollLock);
-  elements.languageButton.addEventListener("click", toggleLanguage);
   elements.themeButton.addEventListener("click", toggleTheme);
   elements.timezoneForm.addEventListener("submit", confirmTimezoneSelection);
   elements.timezoneClose.addEventListener("click", cancelTimezoneDialog);
@@ -3862,6 +4228,29 @@ function bindEvents() {
   });
   elements.shiftSettingsDialog.addEventListener("close", () => {
     shiftPresetDraft = null;
+  });
+  elements.advancedSettingsClose.addEventListener("click", closeAdvancedSettings);
+  elements.advancedSettingsDone.addEventListener("click", closeAdvancedSettings);
+  elements.advancedSettingsDialog.addEventListener("click", (event) => {
+    if (event.target === elements.advancedSettingsDialog) closeAdvancedSettings();
+  });
+  elements.advancedSettingsDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeAdvancedSettings();
+  });
+  elements.advancedNoteList.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-shift-note]");
+    if (!input) return;
+    const shift = state.cycle.find((item) => item.id === input.dataset.shiftNote);
+    if (!shift) return;
+    shift.note = cleanText(input.value, MAX_SHIFT_NOTE_LENGTH);
+    const count = elements.advancedNoteList.querySelector(
+      `[data-note-count="${shift.id}"]`
+    );
+    if (count) count.textContent = `${input.value.length} / ${MAX_SHIFT_NOTE_LENGTH}`;
+    renderCycle();
+    renderPreview();
+    scheduleSave();
   });
   elements.addShiftPreset.addEventListener("click", () => addCustomShiftPreset("work"));
   elements.addRestPreset.addEventListener("click", () => addCustomShiftPreset("off"));
@@ -3989,7 +4378,7 @@ function bindEvents() {
     if (confirmationResolver) resolveConfirmation(false);
   });
 
-  elements.newCalendarButton.addEventListener("click", startNewCalendar);
+  elements.newCalendarButton.addEventListener("click", beginNewCalendar);
   elements.importCycleButton.addEventListener("click", () => openCycleImportDialog());
   elements.cycleShareClose.addEventListener("click", closeCycleShareDialog);
   elements.cycleShareDialog.addEventListener("click", (event) => {
@@ -3998,6 +4387,7 @@ function bindEvents() {
   elements.cycleShareDialog.addEventListener("cancel", closeCycleShareDialog);
   elements.copyCycleShare.addEventListener("click", copyCycleShareLink);
   elements.systemShareCycle.addEventListener("click", shareCycleNatively);
+  elements.cycleShareIncludeNotes.addEventListener("change", refreshCycleShareLink);
   elements.cycleImportClose.addEventListener("click", closeCycleImportDialog);
   elements.cycleImportDialog.addEventListener("click", (event) => {
     if (event.target === elements.cycleImportDialog) closeCycleImportDialog();
@@ -4026,6 +4416,9 @@ function bindEvents() {
   for (const button of document.querySelectorAll("[data-admin-tab]")) {
     button.addEventListener("click", () => showAdminTab(button.dataset.adminTab));
   }
+  elements.settingsLanguage.addEventListener("change", () => {
+    updateAccountLanguage(elements.settingsLanguage.value);
+  });
   elements.peopleList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-admin-action]");
     if (!button) return;
@@ -4038,6 +4431,10 @@ function bindEvents() {
     if (button.dataset.adminAction === "password") {
       const user = adminUsers.find((item) => item.id === button.dataset.id);
       if (user) openAdminPasswordDialog(user);
+    }
+    if (button.dataset.adminAction === "delete") {
+      const user = adminUsers.find((item) => item.id === button.dataset.id);
+      if (user) deleteAdminUser(user);
     }
   });
   elements.inviteForm.addEventListener("submit", submitInvite);
@@ -4066,6 +4463,8 @@ function bindEvents() {
 
 async function initialize() {
   hydrateStaticIcons();
+  refreshLanguageButton();
+  setBuilderEntryMode(null);
   syncPageScrollLock();
   applyTheme(document.documentElement.dataset.theme, { persist: false });
   timezoneConfirmedForLink = getLanguage() !== "en";
@@ -4076,6 +4475,8 @@ async function initialize() {
   syncFieldValues();
   renderCycle();
   renderPreview();
+  renderSubscriptionContentControl();
+  renderBuilderCycleSelect();
   bindEvents();
   setWelcomeAuthReady(false);
   setWelcomeAuthTab("login");

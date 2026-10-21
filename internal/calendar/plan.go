@@ -21,6 +21,7 @@ const (
 	MaxBackwardMonths     = 24
 	MaxShiftPresets       = 12
 	MaxEndDayOffset       = 7
+	MaxShiftNoteLength    = 500
 )
 
 var (
@@ -51,6 +52,7 @@ type Shift struct {
 	EndDayOffset int     `json:"endDayOffset"`
 	Tone         string  `json:"tone"`
 	PresetID     *string `json:"presetId"`
+	Note         string  `json:"note,omitempty"`
 }
 
 // Plan is the normalized representation stored for a member calendar.
@@ -285,6 +287,7 @@ func normalizeShift(source any, index int) (Shift, error) {
 			"tone":         sliceValue(value, 4),
 			"presetId":     sliceValue(value, 5),
 			"endDayOffset": sliceValue(value, 6),
+			"note":         sliceValue(value, 7),
 		}
 	case map[string]any:
 		item = value
@@ -350,6 +353,7 @@ func normalizeShift(source any, index int) (Shift, error) {
 		EndDayOffset: endDayOffset,
 		Tone:         tone,
 		PresetID:     preset,
+		Note:         cleanText(firstValue(item, "note"), MaxShiftNoteLength, ""),
 	}, nil
 }
 

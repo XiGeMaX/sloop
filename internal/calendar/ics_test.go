@@ -100,6 +100,67 @@ func TestBuildCalendarSupportsMultiDayShifts(t *testing.T) {
 	}
 }
 
+func TestBuildCalendarContentModes(t *testing.T) {
+	plan := mustPlan(t, `{
+	  "t":"Notes","z":"Asia/Shanghai","i":0,
+	  "c":[
+	    ["w","Day","08:00","20:00","sky","",0,"Bring access card"],
+	    ["w","Night","20:00","08:00","indigo"]
+	  ]
+	}`)
+	tests := []struct {
+		name        string
+		mode        ContentMode
+		wantSummary string
+		wantNote    bool
+		wantNight   bool
+	}{
+		{
+			name:        "shift and note",
+			mode:        ContentFull,
+			wantSummary: "SUMMARY:Day",
+			wantNote:    true,
+			wantNight:   true,
+		},
+		{
+			name:        "shift only",
+			mode:        ContentShift,
+			wantSummary: "SUMMARY:Day",
+			wantNight:   true,
+		},
+		{
+			name:        "note only",
+			mode:        ContentNote,
+			wantSummary: "SUMMARY:Bring access card",
+			wantNote:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calendar, err := BuildCalendar(plan, BuildOptions{
+				Now:       testNow,
+				Months:    1,
+				StartDate: "2026-10-18",
+				Content:   test.mode,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(calendar, test.wantSummary) {
+				t.Errorf("calendar missing %q", test.wantSummary)
+			}
+			hasNote := strings.Contains(calendar, "Bring access card")
+			if hasNote != test.wantNote {
+				t.Errorf("note present = %v, want %v", hasNote, test.wantNote)
+			}
+			hasNight := strings.Contains(calendar, "SUMMARY:Night")
+			if hasNight != test.wantNight {
+				t.Errorf("shift without note present = %v, want %v", hasNight, test.wantNight)
+			}
+		})
+	}
+}
+
 func TestBuildCalendarEndsPostNightRestAtEndOfDay(t *testing.T) {
 	plan := mustPlan(t, samplePlanJSON)
 	calendar, err := BuildCalendar(plan, BuildOptions{

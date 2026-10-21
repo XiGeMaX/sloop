@@ -26,6 +26,7 @@ type userView struct {
 	Nickname   string  `json:"nickname"`
 	Role       string  `json:"role"`
 	Status     string  `json:"status"`
+	Locale     string  `json:"locale"`
 	CreatedAt  string  `json:"createdAt"`
 	ApprovedAt *string `json:"approvedAt"`
 }
@@ -43,6 +44,7 @@ func serializeUser(user store.User) userView {
 		Nickname:   user.Nickname,
 		Role:       user.Role,
 		Status:     user.Status,
+		Locale:     user.Locale,
 		CreatedAt:  user.CreatedAt,
 		ApprovedAt: user.ApprovedAt,
 	}
@@ -68,6 +70,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) error {
 	inviteCode, err := calendar.NormalizeInviteCode(body["inviteCode"])
 	if err != nil {
 		return inputError(err)
+	}
+	locale, err := normalizeLocale(body["locale"])
+	if err != nil {
+		return err
 	}
 
 	now := s.now().UTC()
@@ -96,6 +102,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) error {
 		Nickname:         nickname,
 		PasswordHash:     passwordHash,
 		PasswordSalt:     salt,
+		Locale:           locale,
 		InviteCode:       inviteCode,
 		CreatedAt:        createdAt,
 		RegisteredAtUnix: now.Unix(),
@@ -247,6 +254,38 @@ func (s *Server) handleProfileUpdate(w http.ResponseWriter, r *http.Request) err
 	user.Nickname = nickname
 	writeJSON(w, http.StatusOK, map[string]any{"user": serializeUser(user)}, nil)
 	return nil
+}
+
+func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) error {
+	user, err := s.requireUser(r.Context(), r)
+	if err != nil {
+		return err
+	}
+	body, err := readJSON(w, r, 64_000)
+	if err != nil {
+		return err
+	}
+	locale, err := normalizeLocale(body["locale"])
+	if err != nil {
+		return err
+	}
+	if err := s.store.UpdateLocale(r.Context(), user.ID, locale); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return &APIError{Status: http.StatusNotFound, Code: "user_not_found"}
+		}
+		return err
+	}
+	user.Locale = locale
+	writeJSON(w, http.StatusOK, map[string]any{"user": serializeUser(user)}, nil)
+	return nil
+}
+
+func normalizeLocale(value any) (string, error) {
+	locale := strings.TrimSpace(stringFromJSON(value))
+	if locale == "" || locale == "zh-CN" || locale == "en" {
+		return locale, nil
+	}
+	return "", &APIError{Status: http.StatusBadRequest, Code: "invalid_locale"}
 }
 
 func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) error {

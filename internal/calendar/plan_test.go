@@ -62,10 +62,13 @@ func TestNormalizePlanPreservesPresetReference(t *testing.T) {
 	plan := mustPlan(t, `{
 	  "t": "Shifts",
 	  "z": "Asia/Shanghai",
-	  "c": [["w", "Day", "08:00", "20:00", "sky", "day"]]
+	  "c": [["w", "Day", "08:00", "20:00", "sky", "day", 0, "Bring access card"]]
 	}`)
 	if plan.Cycle[0].PresetID == nil || *plan.Cycle[0].PresetID != "day" {
 		t.Fatalf("preset ID = %#v", plan.Cycle[0].PresetID)
+	}
+	if plan.Cycle[0].Note != "Bring access card" {
+		t.Fatalf("note = %q", plan.Cycle[0].Note)
 	}
 }
 

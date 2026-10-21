@@ -59,6 +59,7 @@ type BackupUser struct {
 	CreatedAt    string  `json:"createdAt"`
 	ApprovedAt   *string `json:"approvedAt"`
 	ApprovedBy   *string `json:"approvedBy"`
+	Locale       string  `json:"locale"`
 }
 
 // BackupInvite is one invite row in the portable backup.
@@ -382,8 +383,8 @@ func (s *Store) ImportBackup(ctx context.Context, snapshot BackupSnapshot) error
 			ctx,
 			`INSERT INTO users
 			 (id, username, nickname, password_hash, password_salt, role, status,
-			  invite_code, created_at, approved_at, approved_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  invite_code, created_at, approved_at, approved_by, locale)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			user.ID,
 			user.Username,
 			user.Nickname,
@@ -395,6 +396,7 @@ func (s *Store) ImportBackup(ctx context.Context, snapshot BackupSnapshot) error
 			user.CreatedAt,
 			user.ApprovedAt,
 			user.ApprovedBy,
+			user.Locale,
 		); err != nil {
 			return err
 		}
@@ -514,6 +516,10 @@ func normalizeBackupUser(source any) (BackupUser, error) {
 	if err != nil {
 		return BackupUser{}, err
 	}
+	locale := text(object["locale"])
+	if !oneOf(locale, "", "zh-CN", "en") {
+		return BackupUser{}, errors.New("invalid backup")
+	}
 	return BackupUser{
 		ID:           id,
 		Username:     username,
@@ -526,6 +532,7 @@ func normalizeBackupUser(source any) (BackupUser, error) {
 		CreatedAt:    *createdAtValue,
 		ApprovedAt:   approvedAt,
 		ApprovedBy:   approvedBy,
+		Locale:       locale,
 	}, nil
 }
 

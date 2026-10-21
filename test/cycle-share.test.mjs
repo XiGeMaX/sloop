@@ -10,7 +10,7 @@ import {
 const plan = {
   t: "轮转班表",
   c: [
-    ["w", "白班", "08:00", "20:00", "sky", "day", 0],
+    ["w", "白班", "08:00", "20:00", "sky", "day", 0, "带上通行证"],
     ["w", "夜班", "20:00", "08:00", "indigo", "night", 1],
     ["w", "白班", "08:00", "20:00", "sky", "day", 0]
   ]
@@ -54,6 +54,7 @@ test("round-trips compressed share links and rejects JSON payloads", async () =>
     `https://sloop.example/#share=${token}`
   );
   assert.equal(decoded.plan.t, plan.t);
+  assert.equal(decoded.plan.c[0][7], "带上通行证");
   assert.equal(decoded.presets[0].id, "day");
   await assert.rejects(decodeCycleShareInput(JSON.stringify(share)), /invalid_share_link/);
 });

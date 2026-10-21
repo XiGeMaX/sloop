@@ -91,6 +91,30 @@ func (s *Server) handleAdminUserUpdate(
 	return nil
 }
 
+func (s *Server) handleAdminUserDelete(
+	w http.ResponseWriter,
+	r *http.Request,
+	userID string,
+) error {
+	admin, err := s.requireAdmin(r.Context(), r)
+	if err != nil {
+		return err
+	}
+	err = s.store.DeleteUser(r.Context(), admin.ID, userID)
+	switch {
+	case errors.Is(err, store.ErrCannotModifySelf):
+		return &APIError{Status: http.StatusBadRequest, Code: "cannot_delete_self"}
+	case errors.Is(err, store.ErrLastAdmin):
+		return &APIError{Status: http.StatusBadRequest, Code: "last_admin"}
+	case errors.Is(err, store.ErrNotFound):
+		return &APIError{Status: http.StatusNotFound, Code: "user_not_found"}
+	case err != nil:
+		return err
+	}
+	writeEmpty(w, http.StatusNoContent, nil)
+	return nil
+}
+
 func (s *Server) handleAdminPasswordReset(
 	w http.ResponseWriter,
 	r *http.Request,

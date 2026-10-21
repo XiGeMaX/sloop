@@ -132,3 +132,60 @@ func TestCalendarListRejectsCorruptPlanData(t *testing.T) {
 		t.Fatalf("corrupt calendar list status = %d, body = %s", response.StatusCode, data)
 	}
 }
+
+func TestCalendarSubscriptionContentModesAreSigned(t *testing.T) {
+	harness := newTestHarness(t)
+	response, data := harness.request(t, http.MethodPost, "/api/auth/register", map[string]any{
+		"username": "notes-admin",
+		"password": "admin-password-123",
+		"nickname": "Notes Admin",
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("register admin status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(t, http.MethodPost, "/api/calendars", map[string]any{
+		"title": "Notes",
+		"plan": json.RawMessage(`{
+		  "t":"Notes","z":"Asia/Shanghai","i":0,
+		  "c":[["w","Day","08:00","20:00","sky","",0,"Bring access card"]]
+		}`),
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create calendar status = %d, body = %s", response.StatusCode, data)
+	}
+	calendar := decodeObject(t, data)["calendar"].(map[string]any)
+	paths := calendar["subscriptionPaths"].(map[string]any)
+
+	response, data = harness.request(t, http.MethodGet, paths["full"].(string), nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "SUMMARY:Day") ||
+		!strings.Contains(string(data), "Bring access card") {
+		t.Fatalf("full subscription status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(t, http.MethodGet, paths["shift"].(string), nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "SUMMARY:Day") ||
+		strings.Contains(string(data), "Bring access card") {
+		t.Fatalf("shift subscription status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(t, http.MethodGet, paths["note"].(string), nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "SUMMARY:Bring access card") {
+		t.Fatalf("note subscription status = %d, body = %s", response.StatusCode, data)
+	}
+
+	shiftURL, err := url.Parse(paths["shift"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := shiftURL.Query()
+	query.Set("content", "note")
+	shiftURL.RawQuery = query.Encode()
+	response, _ = harness.request(t, http.MethodGet, shiftURL.String(), nil, nil)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("tampered content mode status = %d", response.StatusCode)
+	}
+}

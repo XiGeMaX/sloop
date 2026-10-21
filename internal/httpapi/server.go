@@ -161,6 +161,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		err = s.handleProfileUpdate(w, r)
 	case r.Method == http.MethodPatch && r.URL.Path == "/api/auth/password":
 		err = s.handlePasswordChange(w, r)
+	case r.Method == http.MethodPatch && r.URL.Path == "/api/auth/settings":
+		err = s.handleSettingsUpdate(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/auth/me":
 		err = s.handleMe(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/shift-library":
@@ -208,6 +210,10 @@ func (s *Server) handleParameterizedRoute(w http.ResponseWriter, r *http.Request
 	if len(parts) == 4 && parts[0] == "api" && parts[1] == "admin" &&
 		parts[2] == "users" && r.Method == http.MethodPatch {
 		return s.handleAdminUserUpdate(w, r, parts[3])
+	}
+	if len(parts) == 4 && parts[0] == "api" && parts[1] == "admin" &&
+		parts[2] == "users" && r.Method == http.MethodDelete {
+		return s.handleAdminUserDelete(w, r, parts[3])
 	}
 	if len(parts) == 4 && parts[0] == "api" && parts[1] == "admin" &&
 		parts[2] == "invites" && r.Method == http.MethodDelete {

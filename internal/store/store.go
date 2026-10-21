@@ -45,6 +45,7 @@ type User struct {
 	CreatedAt    string
 	ApprovedAt   *string
 	ApprovedBy   *string
+	Locale       string
 }
 
 // Calendar is a member-owned saved shift plan.
@@ -84,6 +85,7 @@ type Registration struct {
 	Nickname         string
 	PasswordHash     string
 	PasswordSalt     string
+	Locale           string
 	InviteCode       string
 	CreatedAt        string
 	RegisteredAtUnix int64
@@ -269,8 +271,8 @@ func (s *Store) Register(
 		ctx,
 		`INSERT INTO users
 		 (id, username, nickname, password_hash, password_salt, role, status,
-		  invite_code, created_at, approved_at, approved_by)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  invite_code, created_at, approved_at, approved_by, locale)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		registration.ID,
 		registration.Username,
 		registration.Nickname,
@@ -282,6 +284,7 @@ func (s *Store) Register(
 		registration.CreatedAt,
 		approvedAt,
 		approvedBy,
+		registration.Locale,
 	)
 	if err != nil {
 		if isUniqueConstraint(err) {
@@ -327,6 +330,7 @@ func (s *Store) Register(
 		Role:         role,
 		Status:       status,
 		CreatedAt:    registration.CreatedAt,
+		Locale:       registration.Locale,
 	}
 	if registration.InviteCode != "" {
 		user.InviteCode = &registration.InviteCode
@@ -482,6 +486,28 @@ func (s *Store) UpdatePassword(
 	return nil
 }
 
+// UpdateLocale stores a member's preferred interface locale. An empty locale
+// means the browser preference should be used.
+func (s *Store) UpdateLocale(ctx context.Context, userID, locale string) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		"UPDATE users SET locale = ? WHERE id = ?",
+		locale,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("updating locale: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking locale update: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ChangePassword stores a new password and revokes every other session for the
 // same account in one transaction.
 func (s *Store) ChangePassword(
@@ -564,7 +590,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]UserWithCount, error) {
 		ctx,
 		`SELECT u.id, u.username, u.nickname, u.password_hash, u.password_salt,
 		        u.role, u.status, u.invite_code, u.created_at, u.approved_at,
-		        u.approved_by, COUNT(c.id) AS calendar_count
+		        u.approved_by, u.locale, COUNT(c.id) AS calendar_count
 		 FROM users u
 		 LEFT JOIN calendars c ON c.user_id = u.id
 		 GROUP BY u.id
@@ -592,6 +618,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]UserWithCount, error) {
 			&user.CreatedAt,
 			&approvedAt,
 			&approvedBy,
+			&user.Locale,
 			&user.CalendarCount,
 		); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
@@ -691,6 +718,47 @@ func (s *Store) UpdateUser(
 		}
 	}
 	return target, nil
+}
+
+// DeleteUser permanently removes an account and its owned data. The caller
+// cannot delete itself, and the final approved administrator is protected.
+func (s *Store) DeleteUser(ctx context.Context, adminID, targetID string) error {
+	if adminID == targetID {
+		return ErrCannotModifySelf
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning user deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	target, err := scanUser(tx.QueryRowContext(
+		ctx,
+		"SELECT * FROM users WHERE id = ? LIMIT 1",
+		targetID,
+	))
+	if err != nil {
+		return err
+	}
+	if target.Role == "admin" && target.Status == "approved" {
+		var adminCount int
+		if err := tx.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'approved'",
+		).Scan(&adminCount); err != nil {
+			return fmt.Errorf("counting administrators: %w", err)
+		}
+		if adminCount <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", targetID); err != nil {
+		return fmt.Errorf("deleting user: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing user deletion: %w", err)
+	}
+	return nil
 }
 
 // ResetPassword changes another account's password and revokes all sessions.
@@ -1145,6 +1213,7 @@ func scanUser(row userScanner) (User, error) {
 		&user.CreatedAt,
 		&approvedAt,
 		&approvedBy,
+		&user.Locale,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound

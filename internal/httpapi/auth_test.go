@@ -184,6 +184,51 @@ func TestInviteUsageLimit(t *testing.T) {
 	}
 }
 
+func TestAccountLocaleSettings(t *testing.T) {
+	harness := newTestHarness(t)
+	response, data := harness.request(t, http.MethodPost, "/api/auth/register", map[string]any{
+		"username": "locale-admin",
+		"password": "admin-password-123",
+		"nickname": "Locale Admin",
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("register admin status = %d, body = %s", response.StatusCode, data)
+	}
+	if locale := decodeObject(t, data)["user"].(map[string]any)["locale"]; locale != "" {
+		t.Fatalf("initial locale = %#v, want empty", locale)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPatch,
+		"/api/auth/settings",
+		map[string]any{"locale": "en"},
+		nil,
+	)
+	if response.StatusCode != http.StatusOK ||
+		decodeObject(t, data)["user"].(map[string]any)["locale"] != "en" {
+		t.Fatalf("update locale status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(t, http.MethodGet, "/api/auth/me", nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		decodeObject(t, data)["user"].(map[string]any)["locale"] != "en" {
+		t.Fatalf("me locale status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPatch,
+		"/api/auth/settings",
+		map[string]any{"locale": "fr"},
+		nil,
+	)
+	if response.StatusCode != http.StatusBadRequest ||
+		!strings.Contains(string(data), `"invalid_locale"`) {
+		t.Fatalf("invalid locale status = %d, body = %s", response.StatusCode, data)
+	}
+}
+
 func TestReadJSONRejectsTrailingData(t *testing.T) {
 	harness := newTestHarness(t)
 	response, data := harness.request(

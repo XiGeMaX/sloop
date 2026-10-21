@@ -27,6 +27,39 @@ func TestOpenCreatesPrivateDatabaseFile(t *testing.T) {
 	}
 }
 
+func TestUpdateLocaleEnforcesSupportedValues(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "sloop.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	const userID = "locale-admin-000000000"
+	fixed := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+	_, err = database.Register(ctx, Registration{
+		ID:               userID,
+		Username:         "locale-admin",
+		Nickname:         "Locale Admin",
+		PasswordHash:     "hash",
+		PasswordSalt:     "salt",
+		CreatedAt:        fixed.Format("2006-01-02T15:04:05.000Z"),
+		RegisteredAtUnix: fixed.Unix(),
+		SessionTokenHash: "locale-session",
+		SessionExpiresAt: fixed.Add(24 * time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := database.UpdateLocale(ctx, userID, "en"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpdateLocale(ctx, userID, "fr"); err == nil {
+		t.Fatal("UpdateLocale accepted an unsupported locale")
+	}
+}
+
 func TestCreateCalendarLimit(t *testing.T) {
 	ctx := context.Background()
 	database, err := Open(ctx, filepath.Join(t.TempDir(), "sloop.db"))

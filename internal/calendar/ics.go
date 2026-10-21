@@ -15,6 +15,29 @@ const (
 	maxMemberMonths     = 24
 )
 
+// ContentMode controls what a subscription exposes from each shift.
+type ContentMode string
+
+const (
+	ContentFull  ContentMode = "full"
+	ContentShift ContentMode = "shift"
+	ContentNote  ContentMode = "note"
+)
+
+// ParseContentMode validates a subscription content selector.
+func ParseContentMode(value string) (ContentMode, error) {
+	switch strings.TrimSpace(value) {
+	case "", string(ContentFull):
+		return ContentFull, nil
+	case string(ContentShift):
+		return ContentShift, nil
+	case string(ContentNote):
+		return ContentNote, nil
+	default:
+		return "", &ValidationError{Status: 400, Code: "invalid_subscription_content"}
+	}
+}
+
 // CalendarRow is the minimum calendar data needed to build a merged feed.
 type CalendarRow struct {
 	ID        string
@@ -30,6 +53,7 @@ type BuildOptions struct {
 	IncludeRest  *bool
 	UIDNamespace string
 	DefaultTZ    string
+	Content      ContentMode
 }
 
 // BuildCalendar renders one normalized plan as an RFC 5545 calendar.
@@ -76,6 +100,13 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 	if options.IncludeRest != nil {
 		includeRest = *options.IncludeRest
 	}
+	content := options.Content
+	if content == "" {
+		content = ContentFull
+	}
+	if content != ContentFull && content != ContentShift && content != ContentNote {
+		return "", &ValidationError{Status: 500, Code: "invalid_subscription_content"}
+	}
 
 	description := fmt.Sprintf("从今天起 %d 个月的周期班表", months)
 	if backwardMonths > 0 {
@@ -114,6 +145,9 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 		if shift.Kind == "off" && !includeRest {
 			continue
 		}
+		if content == ContentNote && shift.Note == "" {
+			continue
+		}
 
 		uidSeed := strings.Join([]string{
 			options.UIDNamespace,
@@ -133,6 +167,13 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 			stableHash(uidSeed),
 		)
 		eventDescription := fmt.Sprintf("周期第 %d 天 · %s", cycleIndex+1, plan.Title)
+		if content == ContentFull && shift.Note != "" {
+			eventDescription += "\n" + shift.Note
+		}
+		summary := shift.Name
+		if content == ContentNote {
+			summary = shift.Note
+		}
 
 		lines = append(lines,
 			"BEGIN:VEVENT",
@@ -140,7 +181,7 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 			"DTSTAMP:"+stamp,
 			"LAST-MODIFIED:"+stamp,
 			"SEQUENCE:0",
-			"SUMMARY:"+EscapeText(shift.Name),
+			"SUMMARY:"+EscapeText(summary),
 			"DESCRIPTION:"+EscapeText(eventDescription),
 			"CATEGORIES:"+EscapeText(plan.Title),
 			fmt.Sprintf("X-SLOOP-CYCLE-DAY:%d", cycleIndex+1),
@@ -262,6 +303,7 @@ func BuildMergedCalendar(
 			IncludeRest:  &plan.IncludeRest,
 			UIDNamespace: namespace,
 			DefaultTZ:    defaultTimezone,
+			Content:      options.Content,
 		})
 		if err != nil {
 			return "", err
