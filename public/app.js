@@ -2434,7 +2434,7 @@ function openAuthDialog(tab = "login") {
   if (!elements.authDialog.open) elements.authDialog.showModal();
 }
 
-function openAccountDialog() {
+function openAccountDialog({ focusPassword = false } = {}) {
   if (!currentUser) {
     showAuthView(true);
     return;
@@ -2457,6 +2457,12 @@ function openAccountDialog() {
   setFormStatus(elements.profileStatus, "");
   setFormStatus(elements.passwordStatus, "");
   if (!elements.authDialog.open) elements.authDialog.showModal();
+  if (focusPassword) {
+    requestAnimationFrame(() => {
+      elements.passwordForm.scrollIntoView({ block: "center", behavior: "auto" });
+      elements.passwordForm.elements.currentPassword.focus({ preventScroll: true });
+    });
+  }
 }
 
 function setFormStatus(element, message, isError = false) {
@@ -3570,7 +3576,9 @@ function renderPeople() {
     .map((user) => {
       const isSelf = user.id === currentUser?.id;
       const actions = [];
-      if (!isSelf) {
+      if (isSelf) {
+        actions.push(`<button type="button" data-admin-action="account-password">${t("auth.changePassword")}</button>`);
+      } else {
         actions.push(`<button type="button" data-admin-action="password" data-id="${user.id}">${t("admin.changePassword")}</button>`);
         if (user.status === "pending") {
           actions.push(`<button type="button" data-admin-action="status" data-id="${user.id}" data-status="approved">${t("admin.approve")}</button>`);
@@ -4431,6 +4439,9 @@ function bindEvents() {
     if (button.dataset.adminAction === "password") {
       const user = adminUsers.find((item) => item.id === button.dataset.id);
       if (user) openAdminPasswordDialog(user);
+    }
+    if (button.dataset.adminAction === "account-password") {
+      openAccountDialog({ focusPassword: true });
     }
     if (button.dataset.adminAction === "delete") {
       const user = adminUsers.find((item) => item.id === button.dataset.id);
