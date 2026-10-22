@@ -29,6 +29,7 @@ import {
   normalizeEndDayOffset,
   shiftDurationMinutes
 } from "./shift-time.js";
+import { projectCycleIndex } from "./cycle-today.js";
 
 const LEGACY_STORAGE_KEY = "sloop.plan.v2";
 const USER_PLAN_STORAGE_KEY_PREFIX = "sloop.plan.user.";
@@ -571,6 +572,7 @@ function createDefaultState() {
     title: t("default.calendarTitle"),
     timezone: DEFAULT_TIMEZONE,
     includeRest: false,
+    subscriptionContent: "full",
     durationMonths: DEFAULT_MEMBER_MONTHS,
     backwardCycle: false,
     backwardMonths: DEFAULT_BACKWARD_MONTHS,
@@ -664,6 +666,9 @@ function normalizeClientPlan(raw) {
     title: cleanText(raw.t ?? raw.title, 64) || t("default.calendarTitle"),
     timezone: normalizeTimeZone(raw.z ?? raw.timezone, DEFAULT_TIMEZONE),
     includeRest: Boolean(raw.r ?? raw.includeRest),
+    subscriptionContent: normalizeSubscriptionContent(
+      raw.sc ?? raw.subscriptionContent
+    ),
     durationMonths: clampSubscriptionMonths(
       raw.d ?? raw.durationMonths,
       DEFAULT_MEMBER_MONTHS
@@ -691,6 +696,7 @@ function compactPlan(source = state) {
     t: source.title,
     z: source.timezone,
     r: source.includeRest ? 1 : 0,
+    sc: normalizeSubscriptionContent(source.subscriptionContent),
     d: clampSubscriptionMonths(source.durationMonths, DEFAULT_MEMBER_MONTHS),
     b: source.backwardCycle ? 1 : 0,
     bm: clampBackwardMonths(source.backwardMonths, DEFAULT_BACKWARD_MONTHS),
@@ -2780,10 +2786,18 @@ async function setSubscriptionContent(value) {
   const next = normalizeSubscriptionContent(value);
   if (next === subscriptionContent) return;
   subscriptionContent = next;
+  state.subscriptionContent = next;
   currentLinks = null;
   const calendar =
     calendars.find((item) => item.id === activeCalendarId) ||
     (currentSubscriptionPaths ? { subscriptionPaths: currentSubscriptionPaths } : null);
+  if (calendar?.plan) {
+    calendar.plan = {
+      ...calendar.plan,
+      sc: next,
+      subscriptionContent: next
+    };
+  }
   const path = calendarSubscriptionPath(calendar);
   if (path) {
     currentLinks = buildLinks(path, totalCoverageMonths());
@@ -2794,6 +2808,7 @@ async function setSubscriptionContent(value) {
     elements.copyLinkIcon.disabled = true;
   }
   renderSubscriptionContentControl();
+  scheduleSave();
   await Promise.all([
     refreshMergedSubscription({ quiet: true }),
     refreshSelectedMergedSubscription({ quiet: true })
@@ -2855,11 +2870,16 @@ function applyCalendarContextFromList(calendarList) {
   }
 
   activeCalendarId = calendar.id;
+  subscriptionContent = normalizeSubscriptionContent(
+    calendar.plan?.sc ?? calendar.plan?.subscriptionContent
+  );
+  state.subscriptionContent = subscriptionContent;
   currentSubscriptionPaths = calendar.subscriptionPaths || null;
   const subscriptionPath = calendarSubscriptionPath(calendar);
   currentLinks = buildLinks(subscriptionPath, totalCoverageMonths());
   elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
+  renderSubscriptionContentControl();
   renderCalendarList();
   return true;
 }
@@ -3428,6 +3448,14 @@ async function refreshCalendars(options = {}) {
 
 function loadCalendarIntoBuilder(calendar) {
   state = normalizeClientPlan(calendar.plan);
+  subscriptionContent = normalizeSubscriptionContent(state.subscriptionContent);
+  const projectedTodayIndex = projectCycleIndex({
+    savedAt: calendar.updatedAt,
+    timeZone: state.timezone,
+    savedIndex: getTodayIndex(),
+    cycleLength: state.cycle.length
+  });
+  state.todayId = state.cycle[projectedTodayIndex].id;
   ensureCyclePresetAssignments();
   state.title = localizeBuiltInName(calendar.title);
   state.calendarId = calendar.id;
@@ -3452,6 +3480,7 @@ function loadCalendarIntoBuilder(calendar) {
 
 function startNewCalendar() {
   state = createDefaultState();
+  subscriptionContent = "full";
   timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
   activeCalendarId = null;

@@ -147,7 +147,7 @@ func TestCalendarSubscriptionContentModesAreSigned(t *testing.T) {
 	response, data = harness.request(t, http.MethodPost, "/api/calendars", map[string]any{
 		"title": "Notes",
 		"plan": json.RawMessage(`{
-		  "t":"Notes","z":"Asia/Shanghai","i":0,
+		  "t":"Notes","z":"Asia/Shanghai","i":0,"sc":"note",
 		  "c":[["w","Day","08:00","20:00","sky","",0,"Bring access card"]]
 		}`),
 	}, nil)
@@ -155,6 +155,9 @@ func TestCalendarSubscriptionContentModesAreSigned(t *testing.T) {
 		t.Fatalf("create calendar status = %d, body = %s", response.StatusCode, data)
 	}
 	calendar := decodeObject(t, data)["calendar"].(map[string]any)
+	if plan := calendar["plan"].(map[string]any); plan["subscriptionContent"] != "note" {
+		t.Fatalf("created subscription content = %v, want note", plan["subscriptionContent"])
+	}
 	paths := calendar["subscriptionPaths"].(map[string]any)
 
 	response, data = harness.request(t, http.MethodGet, paths["full"].(string), nil, nil)
@@ -187,5 +190,25 @@ func TestCalendarSubscriptionContentModesAreSigned(t *testing.T) {
 	response, _ = harness.request(t, http.MethodGet, shiftURL.String(), nil, nil)
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("tampered content mode status = %d", response.StatusCode)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPut,
+		"/api/calendars/"+calendar["id"].(string),
+		map[string]any{
+			"plan": json.RawMessage(`{
+			  "t":"Notes","z":"Asia/Shanghai","i":0,"sc":"shift",
+			  "c":[["w","Day","08:00","20:00","sky","",0,"Bring access card"]]
+			}`),
+		},
+		nil,
+	)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("update subscription content status = %d, body = %s", response.StatusCode, data)
+	}
+	updated := decodeObject(t, data)["calendar"].(map[string]any)
+	if plan := updated["plan"].(map[string]any); plan["subscriptionContent"] != "shift" {
+		t.Fatalf("updated subscription content = %v, want shift", plan["subscriptionContent"])
 	}
 }

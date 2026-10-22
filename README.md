@@ -50,7 +50,7 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 
 - 创建任意天数的周期，拖动或用键盘调整班次顺序。
 - 使用最多 12 个可复用班次预设，支持白班、夜班、休息和自定义时段。
-- 支持跨夜、多日班次、12 种颜色、休息日透明事件和周期锚点。
+- 支持跨夜、多日班次、18 种颜色、休息日透明事件和周期锚点。
 - 草稿和班次预设保存在账户与浏览器本地。
 
 **订阅与共享**
@@ -60,6 +60,7 @@ Sloop 面向需要轮班的人：按自己的顺序排列白班、夜班、休�
 - 单周期和合并订阅都使用服务端 HMAC-SHA256 签名。
 - 可订阅全部周期，也可选择部分周期生成独立签名的合并链接。
 - 支持复制链接、下载 `.ics` 和打开 `webcal:`。
+- 单周期导出格式及第三方解析契约见 [`docs/cycle-export-interchange.md`](docs/cycle-export-interchange.md)。
 
 **账户与管理**
 
@@ -255,9 +256,10 @@ Sloop turns a repeating shift pattern into an ICS calendar. Each position in the
 
 - Cycles of any length with drag-and-keyboard ordering.
 - Up to 12 reusable shift presets, including day, night, rest, and custom work periods.
-- Overnight and multi-day shifts, 12 colors, transparent rest events, and a movable cycle anchor.
+- Overnight and multi-day shifts, 18 colors, transparent rest events, and a movable cycle anchor.
 - Up to 50 saved cycles per member, each with a 1 to 24 month subscription range.
 - HMAC-SHA256-signed member and merged subscription links.
+- See [`docs/cycle-export-interchange.md`](docs/cycle-export-interchange.md) for standalone cycle interchange and third-party parsing.
 - Account approval, role management, invite limits, expiry, password resets, and JSON backups.
 - First registered account becomes the administrator; later accounts wait for approval unless they use a valid invite.
 

@@ -57,14 +57,15 @@ type Shift struct {
 
 // Plan is the normalized representation stored for a member calendar.
 type Plan struct {
-	Title          string  `json:"title"`
-	Timezone       string  `json:"timezone"`
-	DurationMonths int     `json:"durationMonths"`
-	BackwardCycle  bool    `json:"backwardCycle"`
-	BackwardMonths int     `json:"backwardMonths"`
-	TodayIndex     int     `json:"todayIndex"`
-	IncludeRest    bool    `json:"includeRest"`
-	Cycle          []Shift `json:"cycle"`
+	Title               string      `json:"title"`
+	Timezone            string      `json:"timezone"`
+	DurationMonths      int         `json:"durationMonths"`
+	BackwardCycle       bool        `json:"backwardCycle"`
+	BackwardMonths      int         `json:"backwardMonths"`
+	TodayIndex          int         `json:"todayIndex"`
+	IncludeRest         bool        `json:"includeRest"`
+	SubscriptionContent ContentMode `json:"subscriptionContent"`
+	Cycle               []Shift     `json:"cycle"`
 }
 
 // ShiftPreset is a reusable, member-owned shift definition.
@@ -109,6 +110,12 @@ func NormalizePlan(raw any, defaultTimezone string) (Plan, error) {
 	if !ok {
 		return Plan{}, invalid("invalid_plan")
 	}
+	subscriptionContent, err := ParseContentMode(
+		textValue(firstValue(object, "sc", "subscriptionContent")),
+	)
+	if err != nil {
+		return Plan{}, err
+	}
 
 	sourceCycle, ok := asSlice(firstValue(object, "c", "cycle"))
 	if !ok || len(sourceCycle) == 0 {
@@ -136,14 +143,15 @@ func NormalizePlan(raw any, defaultTimezone string) (Plan, error) {
 	backwardMonths = clamp(backwardMonths, 1, MaxBackwardMonths)
 
 	return Plan{
-		Title:          cleanText(firstValue(object, "t", "title"), 64, "轮转班表"),
-		Timezone:       NormalizeTimezone(textValue(firstValue(object, "z", "timezone")), defaultTimezone),
-		DurationMonths: duration,
-		BackwardCycle:  boolValue(firstValue(object, "b", "backwardCycle")),
-		BackwardMonths: backwardMonths,
-		TodayIndex:     todayIndex,
-		IncludeRest:    boolValue(firstValue(object, "r", "includeRest")),
-		Cycle:          cycle,
+		Title:               cleanText(firstValue(object, "t", "title"), 64, "轮转班表"),
+		Timezone:            NormalizeTimezone(textValue(firstValue(object, "z", "timezone")), defaultTimezone),
+		DurationMonths:      duration,
+		BackwardCycle:       boolValue(firstValue(object, "b", "backwardCycle")),
+		BackwardMonths:      backwardMonths,
+		TodayIndex:          todayIndex,
+		IncludeRest:         boolValue(firstValue(object, "r", "includeRest")),
+		SubscriptionContent: subscriptionContent,
+		Cycle:               cycle,
 	}, nil
 }
 

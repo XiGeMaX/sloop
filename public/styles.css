@@ -5194,6 +5194,11 @@ html.page-scroll-locked {
   background: rgba(255, 255, 255, 0.035);
 }
 
+:root[data-theme="dark"] .cycle-item.is-today .day-number {
+  color: var(--surface-solid);
+  background: var(--ink);
+}
+
 :root[data-theme="dark"] .kind-control button[aria-pressed="true"] {
   background: rgba(255, 255, 255, 0.11);
   box-shadow: none;
@@ -5231,6 +5236,11 @@ html.page-scroll-locked {
   :root:not([data-theme]) .day-number,
   :root:not([data-theme]) .kind-control {
     background: rgba(255, 255, 255, 0.035);
+  }
+
+  :root:not([data-theme]) .cycle-item.is-today .day-number {
+    color: var(--surface-solid);
+    background: var(--ink);
   }
 
   :root:not([data-theme]) .kind-control button[aria-pressed="true"] {
