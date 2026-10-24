@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	dummyPasswordSalt = "MDAwMDAwMDAwMDAwMDAwMA=="
-	dummyPasswordHash = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+	dummyPasswordSalt    = "MDAwMDAwMDAwMDAwMDAwMA=="
+	dummyPasswordHash    = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+	sessionLookupTimeout = 2 * time.Second
 )
 
 type userView struct {
@@ -421,13 +422,22 @@ func (s *Server) currentUser(
 	if token == "" || len(token) > 200 {
 		return store.User{}, false, nil
 	}
+	lookupCtx, cancel := context.WithTimeout(ctx, sessionLookupTimeout)
+	defer cancel()
 	user, err := s.store.FindSessionUser(
-		ctx,
+		lookupCtx,
 		security.HashToken(token),
 		s.now().Unix(),
 	)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.User{}, false, nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return store.User{}, false, &APIError{
+			Status: http.StatusServiceUnavailable,
+			Code:   "session_check_timeout",
+			Cause:  err,
+		}
 	}
 	if err != nil {
 		return store.User{}, false, err

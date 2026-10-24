@@ -27,6 +27,61 @@ func TestOpenCreatesPrivateDatabaseFile(t *testing.T) {
 	}
 }
 
+func TestFindSessionUserReadsDuringWriteTransaction(t *testing.T) {
+	ctx := context.Background()
+	database, err := Open(ctx, filepath.Join(t.TempDir(), "sloop.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	const userID = "session-reader-000000"
+	fixed := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	if _, err := database.Register(ctx, Registration{
+		ID:               userID,
+		Username:         "session-reader",
+		Nickname:         "Session Reader",
+		PasswordHash:     "hash",
+		PasswordSalt:     "salt",
+		CreatedAt:        fixed.Format("2006-01-02T15:04:05.000Z"),
+		RegisteredAtUnix: fixed.Unix(),
+		SessionTokenHash: "session-reader-token",
+		SessionExpiresAt: fixed.Add(24 * time.Hour).Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := database.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(
+		ctx,
+		"UPDATE users SET nickname = nickname WHERE id = ?",
+		userID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	user, err := database.FindSessionUser(
+		readCtx,
+		"session-reader-token",
+		fixed.Add(time.Hour).Unix(),
+	)
+	if err != nil {
+		t.Fatalf("session lookup blocked by write transaction: %v", err)
+	}
+	if user.ID != userID {
+		t.Fatalf("session user ID = %q, want %q", user.ID, userID)
+	}
+	if user.PasswordHash != "" || user.PasswordSalt != "" {
+		t.Fatal("session lookup should not load password credentials")
+	}
+}
+
 func TestUpdateLocaleEnforcesSupportedValues(t *testing.T) {
 	ctx := context.Background()
 	database, err := Open(ctx, filepath.Join(t.TempDir(), "sloop.db"))

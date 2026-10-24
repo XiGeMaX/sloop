@@ -43,6 +43,7 @@ const MAX_BACKWARD_MONTHS = 24;
 const MAX_SHIFT_PRESETS = 12;
 const MAX_SHIFT_NOTE_LENGTH = 500;
 const MAX_BACKUP_BYTES = 5 * 1024 * 1024;
+const SESSION_CHECK_TIMEOUT_MS = 3_000;
 const TONE_ORDER = [
   "sky",
   "indigo",
@@ -2081,26 +2082,39 @@ function onHandleKeyDown(event) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(options.headers || {})
-    }
-  });
-
-  if (response.status === 204) return null;
-  let data;
+  const { timeoutMs = 0, signal: callerSignal, ...fetchOptions } = options;
+  const controller =
+    !callerSignal && timeoutMs > 0 && typeof AbortController !== "undefined"
+      ? new AbortController()
+      : null;
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : 0;
   try {
-    data = await response.json();
-  } catch {
-    data = null;
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      ...fetchOptions,
+      signal: callerSignal || controller?.signal,
+      headers: {
+        ...(fetchOptions.body ? { "Content-Type": "application/json" } : {}),
+        ...(fetchOptions.headers || {})
+      }
+    });
+
+    if (response.status === 204) return null;
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+    if (!response.ok) {
+      throw new Error(data?.error || "request_failed");
+    }
+    return data;
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
   }
-  if (!response.ok) {
-    throw new Error(data?.error || "request_failed");
-  }
-  return data;
 }
 
 function errorMessage(error) {
@@ -2380,7 +2394,7 @@ function showAuthView(focusLogin = false) {
 
 async function refreshSession() {
   try {
-    const data = await api("/api/auth/me");
+    const data = await api("/api/auth/me", { timeoutMs: SESSION_CHECK_TIMEOUT_MS });
     if (data.user) await establishAuthenticatedSession(data.user);
     else clearAuthenticatedState();
   } catch {

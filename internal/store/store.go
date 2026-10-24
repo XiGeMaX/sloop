@@ -141,10 +141,11 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite: %w", err)
 	}
-	// A single connection avoids SQLITE_BUSY surprises for this small,
-	// self-hosted workload while WAL still keeps startup and shutdown safe.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// WAL permits concurrent readers alongside the single SQLite writer. Keeping
+	// a few warm connections prevents session checks from waiting behind an
+	// in-flight member or administrator write.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	if err := db.PingContext(ctx); err != nil {
@@ -156,12 +157,6 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db}, nil
-}
-
-// New wraps an already configured SQLite handle. Callers that use New are
-// responsible for running Migrate before serving requests.
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
 }
 
 // Close releases the SQLite connection.
@@ -387,9 +382,10 @@ func (s *Store) FindSessionUser(
 	tokenHash string,
 	nowUnix int64,
 ) (User, error) {
-	return scanUser(s.db.QueryRowContext(
+	return scanSessionUser(s.db.QueryRowContext(
 		ctx,
-		`SELECT u.*
+		`SELECT u.id, u.username, u.nickname, u.role, u.status,
+		        u.locale, u.created_at, u.approved_at
 		 FROM sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'approved'
@@ -1224,6 +1220,29 @@ func scanUser(row userScanner) (User, error) {
 	user.InviteCode = nullStringPointer(inviteCode)
 	user.ApprovedAt = nullStringPointer(approvedAt)
 	user.ApprovedBy = nullStringPointer(approvedBy)
+	return user, nil
+}
+
+func scanSessionUser(row userScanner) (User, error) {
+	var user User
+	var approvedAt sql.NullString
+	err := row.Scan(
+		&user.ID,
+		&user.Username,
+		&user.Nickname,
+		&user.Role,
+		&user.Status,
+		&user.Locale,
+		&user.CreatedAt,
+		&approvedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("scanning session user: %w", err)
+	}
+	user.ApprovedAt = nullStringPointer(approvedAt)
 	return user, nil
 }
 
