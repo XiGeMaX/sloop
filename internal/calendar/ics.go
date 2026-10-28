@@ -43,11 +43,13 @@ type CalendarRow struct {
 	ID        string
 	ShareSlug string
 	PlanJSON  string
+	AnchorAt  time.Time
 }
 
 // BuildOptions controls the generated date range and deterministic test clock.
 type BuildOptions struct {
 	Now          time.Time
+	AnchorAt     time.Time
 	Months       int
 	StartDate    string
 	IncludeRest  *bool
@@ -78,6 +80,10 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 		return "", fmt.Errorf("loading plan timezone: %w", err)
 	}
 
+	anchor := options.AnchorAt
+	if anchor.IsZero() {
+		anchor = now
+	}
 	start := dateParts{}
 	if options.StartDate != "" {
 		start, err = parseDateParts(options.StartDate)
@@ -85,7 +91,7 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 			return "", &ValidationError{Status: 400, Code: "invalid_start_date"}
 		}
 	} else {
-		start = zonedDateParts(now, location)
+		start = zonedDateParts(anchor, location)
 	}
 
 	today := time.Date(start.Year, time.Month(start.Month), start.Day, 0, 0, 0, 0, time.UTC)
@@ -95,7 +101,7 @@ func BuildCalendar(plan Plan, options BuildOptions) (string, error) {
 	}
 	rangeStart := addMonths(today, -backwardMonths)
 	rangeEnd := addMonths(today, months)
-	stamp := formatICSTime(now)
+	stamp := formatICSTime(anchor)
 	includeRest := plan.IncludeRest
 	if options.IncludeRest != nil {
 		includeRest = *options.IncludeRest
@@ -297,8 +303,13 @@ func BuildMergedCalendar(
 		if namespace == "" {
 			namespace = strconv.Itoa(index)
 		}
+		anchorAt := rows[index].AnchorAt
+		if anchorAt.IsZero() {
+			anchorAt = now
+		}
 		calendar, err := BuildCalendar(plan, BuildOptions{
 			Now:          now,
+			AnchorAt:     anchorAt,
 			Months:       plan.DurationMonths,
 			IncludeRest:  &plan.IncludeRest,
 			UIDNamespace: namespace,

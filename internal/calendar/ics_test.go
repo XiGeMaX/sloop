@@ -31,6 +31,55 @@ func TestBuildCalendarStartsFromSelectedShift(t *testing.T) {
 	}
 }
 
+func TestBuildCalendarKeepsSavedScheduleAnchored(t *testing.T) {
+	plan := mustPlan(t, `{
+	  "t":"Locked","z":"Asia/Shanghai","i":0,
+	  "c":[["w","Day","08:00","20:00","sky"]]
+	}`)
+	anchor := time.Date(2026, 10, 18, 2, 0, 0, 0, time.UTC)
+	first, err := BuildCalendar(plan, BuildOptions{
+		Now:      anchor,
+		AnchorAt: anchor,
+		Months:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := BuildCalendar(plan, BuildOptions{
+		Now:      anchor.Add(3 * 24 * time.Hour),
+		AnchorAt: anchor,
+		Months:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != later {
+		t.Fatal("unchanged subscription rolled to a later date")
+	}
+	if !strings.Contains(later, "DTSTART:20261018T000000Z") {
+		t.Fatal("saved subscription is not anchored to its update date")
+	}
+}
+
+func TestBuildCalendarMovesAnchorAfterCalendarUpdate(t *testing.T) {
+	plan := mustPlan(t, `{
+	  "t":"Updated","z":"Asia/Shanghai","i":0,
+	  "c":[["w","Day","08:00","20:00","sky"]]
+	}`)
+	anchor := time.Date(2026, 10, 20, 2, 0, 0, 0, time.UTC)
+	updated, err := BuildCalendar(plan, BuildOptions{
+		Now:      anchor,
+		AnchorAt: anchor,
+		Months:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "DTSTART:20261020T000000Z") {
+		t.Fatal("updated subscription did not move to the new save date")
+	}
+}
+
 func TestBuildCalendarSupportsCyclesLongerThan35Days(t *testing.T) {
 	parts := make([]string, 40)
 	for index := range parts {

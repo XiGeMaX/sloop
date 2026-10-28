@@ -38,6 +38,12 @@ type testHarness struct {
 }
 
 func newTestHarness(t *testing.T) *testHarness {
+	return newTestHarnessWithNow(t, func() time.Time {
+		return time.Date(2026, 10, 18, 2, 0, 0, 0, time.UTC)
+	})
+}
+
+func newTestHarnessWithNow(t *testing.T, now func() time.Time) *testHarness {
 	t.Helper()
 	directory := t.TempDir()
 	staticDir := filepath.Join(directory, "public")
@@ -65,9 +71,7 @@ func newTestHarness(t *testing.T) *testHarness {
 		DefaultTimezone: "Asia/Shanghai",
 		StaticDir:       staticDir,
 		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now: func() time.Time {
-			return time.Date(2026, 10, 18, 2, 0, 0, 0, time.UTC)
-		},
+		Now:             now,
 	})
 	if err != nil {
 		t.Fatal(err)

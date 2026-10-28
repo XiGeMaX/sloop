@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/xigemax/sloop/internal/calendar"
 	"github.com/xigemax/sloop/internal/security"
@@ -130,20 +131,19 @@ func (s *Server) handleUpdateCalendar(
 		return err
 	}
 
-	var plan calendar.Plan
+	existingPlan, err := store.PlanFromJSON(existing.PlanJSON, s.defaultTimezone)
+	if err != nil {
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "calendar_data_invalid",
+			Cause:  err,
+		}
+	}
+	plan := existingPlan
 	if bodyPlan, exists := body["plan"]; exists && bodyPlan != nil {
 		plan, err = calendar.NormalizePlan(bodyPlan, s.defaultTimezone)
 		if err != nil {
 			return inputError(err)
-		}
-	} else {
-		plan, err = store.PlanFromJSON(existing.PlanJSON, s.defaultTimezone)
-		if err != nil {
-			return &APIError{
-				Status: http.StatusInternalServerError,
-				Code:   "calendar_data_invalid",
-				Cause:  err,
-			}
 		}
 	}
 	if title := calendar.CleanText(body["title"], 64, ""); title != "" {
@@ -152,6 +152,18 @@ func (s *Server) handleUpdateCalendar(
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		return err
+	}
+	existingPlanJSON, err := json.Marshal(existingPlan)
+	if err != nil {
+		return err
+	}
+	if plan.Title == existing.Title && string(planJSON) == string(existingPlanJSON) {
+		view, err := s.serializeCalendar(existing)
+		if err != nil {
+			return err
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"calendar": view}, nil)
+		return nil
 	}
 	now := formatTimestamp(s.now().UTC())
 	if err := s.store.UpdateCalendar(
@@ -285,9 +297,18 @@ func (s *Server) handleMemberCalendar(
 			Cause:  err,
 		}
 	}
+	anchorAt, err := time.Parse(time.RFC3339Nano, value.UpdatedAt)
+	if err != nil {
+		return &APIError{
+			Status: http.StatusInternalServerError,
+			Code:   "calendar_data_invalid",
+			Cause:  err,
+		}
+	}
 	includeRest := plan.IncludeRest
 	calendarContent, err := calendar.BuildCalendar(plan, calendar.BuildOptions{
 		Now:         s.now(),
+		AnchorAt:    anchorAt,
 		Months:      plan.DurationMonths,
 		IncludeRest: &includeRest,
 		DefaultTZ:   s.defaultTimezone,
@@ -365,10 +386,19 @@ func (s *Server) handleMergedCalendar(
 				continue
 			}
 		}
+		anchorAt, err := time.Parse(time.RFC3339Nano, value.UpdatedAt)
+		if err != nil {
+			return &APIError{
+				Status: http.StatusInternalServerError,
+				Code:   "calendar_data_invalid",
+				Cause:  err,
+			}
+		}
 		filtered = append(filtered, calendar.CalendarRow{
 			ID:        value.ID,
 			ShareSlug: value.ShareSlug,
 			PlanJSON:  value.PlanJSON,
+			AnchorAt:  anchorAt,
 		})
 	}
 	calendarContent, err := calendar.BuildMergedCalendar(filtered, calendar.BuildOptions{

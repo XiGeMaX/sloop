@@ -326,6 +326,8 @@ let currentLinks = null;
 let currentSubscriptionPaths = null;
 let subscriptionContent = "full";
 let savedPlanTimer = 0;
+let calendarChangeRevision = 0;
+let todayResolvedAt = null;
 let workspaceRevision = 0;
 let dragState = null;
 let selectedShiftId = null;
@@ -781,6 +783,25 @@ function getTodayIndex() {
 
 function getTodayShift() {
   return state.cycle[getTodayIndex()] ?? state.cycle[0];
+}
+
+function advanceTodayToCurrentDate() {
+  if (!state.cycle.length) {
+    todayResolvedAt = new Date().toISOString();
+    return false;
+  }
+  const now = new Date();
+  const previousTodayId = state.todayId;
+  const projectedTodayIndex = projectCycleIndex({
+    savedAt: todayResolvedAt || now,
+    now,
+    timeZone: state.timezone,
+    savedIndex: getTodayIndex(),
+    cycleLength: state.cycle.length
+  });
+  state.todayId = state.cycle[projectedTodayIndex].id;
+  todayResolvedAt = now.toISOString();
+  return state.todayId !== previousTodayId;
 }
 
 function todayParts() {
@@ -1828,7 +1849,8 @@ function flushPlanSaveForUser(user = currentUser) {
   if (user?.id) savePlanSnapshotForUser(user, state);
 }
 
-function scheduleSave() {
+function scheduleSave(options = {}) {
+  if (options.markDirty !== false) calendarChangeRevision += 1;
   cancelScheduledPlanSave();
   const user = currentUser;
   if (!user?.id) return;
@@ -1874,6 +1896,7 @@ function removeShift(id) {
   if (state.todayId === id) {
     const nextIndex = Math.max(0, Math.min(index - 1, state.cycle.length - 1));
     state.todayId = state.cycle[nextIndex].id;
+    todayResolvedAt = new Date().toISOString();
   }
   if (selectedShiftId === id) {
     selectedShiftId = state.cycle[Math.min(index, state.cycle.length - 1)].id;
@@ -1885,6 +1908,7 @@ function removeShift(id) {
 function setToday(id) {
   if (!state.cycle.some((shift) => shift.id === id)) return;
   state.todayId = id;
+  todayResolvedAt = new Date().toISOString();
   renderCycle();
   updateAllPreview();
   navigator.vibrate?.(6);
@@ -2246,7 +2270,7 @@ async function toggleLanguage() {
   localizeBuiltInData();
   refreshLocalizedUI();
   syncFieldValues();
-  scheduleSave();
+  scheduleSave({ markDirty: false });
 }
 
 function timezoneOptionLabel(timeZone, detectedTimeZone, isDetected) {
@@ -2301,11 +2325,12 @@ function confirmTimezoneSelection(event) {
   event.preventDefault();
   const timeZone = normalizeTimeZone(elements.timezoneSelect.value, state.timezone);
   state.timezone = timeZone;
+  todayResolvedAt = new Date().toISOString();
   timezoneConfirmedForLink = true;
   invalidateLinks();
   renderPreview();
   syncShiftTimezoneButton();
-  scheduleSave();
+  scheduleSave({ markDirty: false });
   settleTimezoneDialog(true);
 }
 
@@ -2557,6 +2582,8 @@ async function establishAuthenticatedSession(user) {
   savePlanSnapshotForUser(user, state);
 
   selectedShiftId = state.todayId;
+  calendarChangeRevision = 0;
+  todayResolvedAt = new Date().toISOString();
   if (calendarResult === null) {
     calendars = [];
     activeCalendarId = null;
@@ -2729,6 +2756,8 @@ function clearAuthenticatedState() {
   shiftPresets = cloneDefaultPresets();
   state = createDefaultState();
   selectedShiftId = state.todayId;
+  calendarChangeRevision = 0;
+  todayResolvedAt = new Date().toISOString();
   renderPresets();
   syncFieldValues();
   renderShiftSettings();
@@ -2831,6 +2860,11 @@ async function setSubscriptionContent(value) {
 
 async function persistCalendar() {
   if (!currentUser) throw new Error("authentication_required");
+  if (advanceTodayToCurrentDate()) {
+    renderCycle();
+    renderPreview();
+  }
+  const saveRevision = calendarChangeRevision;
   const payload = {
     title: state.title,
     plan: compactPlan()
@@ -2854,7 +2888,8 @@ async function persistCalendar() {
   elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
   updateActionLabels();
-  scheduleSave();
+  if (calendarChangeRevision === saveRevision) calendarChangeRevision = 0;
+  scheduleSave({ markDirty: false });
   await refreshCalendars({ quiet: true });
   return currentLinks;
 }
@@ -2895,6 +2930,7 @@ function applyCalendarContextFromList(calendarList) {
   elements.copyLinkIcon.disabled = false;
   renderSubscriptionContentControl();
   renderCalendarList();
+  scheduleSave({ markDirty: false });
   return true;
 }
 
@@ -2904,7 +2940,7 @@ async function restoreActiveCalendarContext() {
   if (calendarList === null) return false;
   const restored = applyCalendarContextFromList(calendarList);
   updateValidation();
-  scheduleSave();
+  scheduleSave({ markDirty: false });
   return restored;
 }
 
@@ -3470,6 +3506,8 @@ function loadCalendarIntoBuilder(calendar) {
     cycleLength: state.cycle.length
   });
   state.todayId = state.cycle[projectedTodayIndex].id;
+  todayResolvedAt = new Date().toISOString();
+  calendarChangeRevision = 0;
   ensureCyclePresetAssignments();
   state.title = localizeBuiltInName(calendar.title);
   state.calendarId = calendar.id;
@@ -3487,7 +3525,7 @@ function loadCalendarIntoBuilder(calendar) {
   renderBuilderCycleSelect();
   elements.linkText.textContent = `${window.location.host}${subscriptionPath}`;
   elements.copyLinkIcon.disabled = false;
-  scheduleSave();
+  scheduleSave({ markDirty: false });
   showView("builder");
   setBuilderEntryMode("edit");
 }
@@ -3497,6 +3535,8 @@ function startNewCalendar() {
   subscriptionContent = "full";
   timezoneConfirmedForLink = getLanguage() !== "en";
   selectedShiftId = state.todayId;
+  calendarChangeRevision = 0;
+  todayResolvedAt = new Date().toISOString();
   activeCalendarId = null;
   currentLinks = null;
   currentSubscriptionPaths = null;
@@ -3505,7 +3545,7 @@ function startNewCalendar() {
   renderPreview();
   renderSubscriptionContentControl();
   renderBuilderCycleSelect();
-  scheduleSave();
+  scheduleSave({ markDirty: false });
   showView("builder");
   setBuilderEntryMode("new");
   document.querySelector(".editor-heading")?.scrollIntoView({
@@ -3526,7 +3566,7 @@ async function switchBuilderCycle(calendarId) {
     return;
   }
   try {
-    if (activeCalendarId) await persistCalendar();
+    if (activeCalendarId && calendarChangeRevision > 0) await persistCalendar();
     loadCalendarIntoBuilder(calendar);
   } catch (error) {
     showToast(errorMessage(error), "error");
@@ -3536,7 +3576,7 @@ async function switchBuilderCycle(calendarId) {
 
 async function beginNewCalendar() {
   try {
-    if (activeCalendarId) await persistCalendar();
+    if (activeCalendarId && calendarChangeRevision > 0) await persistCalendar();
     startNewCalendar();
   } catch (error) {
     showToast(errorMessage(error), "error");
@@ -3780,7 +3820,7 @@ async function updateAccountLanguage(locale) {
     refreshLocalizedUI();
     syncFieldValues();
     renderAdvancedSettings();
-    scheduleSave();
+    scheduleSave({ markDirty: false });
     setFormStatus(elements.settingsStatus, t("settings.saved"));
   } catch (error) {
     elements.settingsLanguage.value = previousLocale;
@@ -4545,7 +4585,7 @@ async function initialize() {
     if (currentUser) resumePendingSharedCycleImport();
     else openAuthDialog("login");
   }
-  scheduleSave();
+  scheduleSave({ markDirty: false });
 }
 
 initialize();

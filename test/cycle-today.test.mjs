@@ -16,6 +16,32 @@ test("projects the saved cycle index to today", () => {
   );
 });
 
+test("keeps a manually selected today when saved on the same date", () => {
+  assert.equal(
+    projectCycleIndex({
+      savedAt: "2026-10-24T01:00:00.000Z",
+      now: new Date("2026-10-24T15:00:00.000Z"),
+      timeZone: "Asia/Shanghai",
+      savedIndex: 51,
+      cycleLength: 52
+    }),
+    51
+  );
+});
+
+test("advances a manually selected today across midnight before saving", () => {
+  assert.equal(
+    projectCycleIndex({
+      savedAt: "2026-10-25T15:59:00.000Z",
+      now: new Date("2026-10-25T16:01:00.000Z"),
+      timeZone: "Asia/Shanghai",
+      savedIndex: 51,
+      cycleLength: 52
+    }),
+    0
+  );
+});
+
 test("wraps the projected index around the cycle", () => {
   assert.equal(
     projectCycleIndex({

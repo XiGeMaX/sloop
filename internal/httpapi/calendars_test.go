@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCalendarUpdatesDeletesAndSignedSubscriptions(t *testing.T) {
@@ -98,6 +99,101 @@ func TestCalendarUpdatesDeletesAndSignedSubscriptions(t *testing.T) {
 	response, _ = harness.request(t, http.MethodGet, memberPath, nil, nil)
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("deleted member subscription status = %d", response.StatusCode)
+	}
+}
+
+func TestCalendarSubscriptionStaysAnchoredUntilCalendarIsUpdated(t *testing.T) {
+	current := time.Date(2026, 10, 18, 2, 0, 0, 0, time.UTC)
+	harness := newTestHarnessWithNow(t, func() time.Time { return current })
+	response, data := harness.request(t, http.MethodPost, "/api/auth/register", map[string]any{
+		"username": "locked-admin",
+		"password": "admin-password-123",
+		"nickname": "Locked Admin",
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("register admin status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(t, http.MethodPost, "/api/calendars", map[string]any{
+		"title": "Locked",
+		"plan": json.RawMessage(`{
+		  "t":"Locked","z":"Asia/Shanghai","i":0,"d":1,
+		  "c":[["w","Day","08:00","20:00","sky"]]
+		}`),
+	}, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create calendar status = %d, body = %s", response.StatusCode, data)
+	}
+	created := decodeObject(t, data)["calendar"].(map[string]any)
+	path := created["subscriptionPath"].(string)
+	response, data = harness.request(
+		t,
+		http.MethodGet,
+		"/api/merged-subscription",
+		nil,
+		nil,
+	)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("merged subscription status = %d, body = %s", response.StatusCode, data)
+	}
+	mergedPath := decodeObject(t, data)["subscriptionPath"].(string)
+
+	response, data = harness.request(t, http.MethodGet, path, nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "DTSTART:20261018T000000Z") {
+		t.Fatalf("initial subscription status = %d, body = %s", response.StatusCode, data)
+	}
+	initial := string(data)
+	response, data = harness.request(t, http.MethodGet, mergedPath, nil, nil)
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(data), "DTSTART:20261018T000000Z") {
+		t.Fatalf("initial merged subscription status = %d, body = %s", response.StatusCode, data)
+	}
+	initialMerged := string(data)
+
+	current = current.Add(3 * 24 * time.Hour)
+	response, data = harness.request(t, http.MethodGet, path, nil, nil)
+	if response.StatusCode != http.StatusOK || string(data) != initial {
+		t.Fatalf("unchanged subscription moved after fetch: status = %d, body = %s", response.StatusCode, data)
+	}
+	response, data = harness.request(t, http.MethodGet, mergedPath, nil, nil)
+	if response.StatusCode != http.StatusOK || string(data) != initialMerged {
+		t.Fatalf("unchanged merged subscription moved after fetch: status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPut,
+		"/api/calendars/"+created["id"].(string),
+		map[string]any{"title": "Locked"},
+		nil,
+	)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("no-op update status = %d, body = %s", response.StatusCode, data)
+	}
+	response, data = harness.request(t, http.MethodGet, path, nil, nil)
+	if response.StatusCode != http.StatusOK || string(data) != initial {
+		t.Fatalf("no-op save moved subscription: status = %d, body = %s", response.StatusCode, data)
+	}
+
+	response, data = harness.request(
+		t,
+		http.MethodPut,
+		"/api/calendars/"+created["id"].(string),
+		map[string]any{"title": "Locked updated"},
+		nil,
+	)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("update calendar status = %d, body = %s", response.StatusCode, data)
+	}
+	response, data = harness.request(t, http.MethodGet, path, nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "DTSTART:20261021T000000Z") {
+		t.Fatalf("updated subscription status = %d, body = %s", response.StatusCode, data)
+	}
+	response, data = harness.request(t, http.MethodGet, mergedPath, nil, nil)
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(data), "DTSTART:20261021T000000Z") {
+		t.Fatalf("updated merged subscription status = %d, body = %s", response.StatusCode, data)
 	}
 }
 
